@@ -1,6 +1,6 @@
 ---
 name: canslim
-description: IBD-style CAN SLIM fundamental analysis of a US stock or ETF ticker. Produces a 0-99 composite score, a Buy/Hold/Sell verdict, and a short synopsis explaining why. Use when the user asks to analyze a ticker, asks "is TICKER a buy?", asks for a CAN SLIM or IBD-style check, or invokes /canslim with one or more tickers.
+description: IBD-style CAN SLIM fundamental analysis of a US stock or ETF ticker. Produces a 0-99 composite score, a Buy/Hold/Sell verdict, a separate Intact/At Risk/Broken read on the long-term thesis, and a short synopsis explaining both. Use when the user asks to analyze a ticker, asks "is TICKER a buy?", asks whether to hold or exit a position, asks for a CAN SLIM or IBD-style check, or invokes /canslim with one or more tickers.
 argument-hint: <TICKER> [TICKER ...]
 ---
 
@@ -46,7 +46,9 @@ For a **stock**, fetch in parallel:
 - Quarterly EPS/revenue (last 2–3 quarters, YoY): `WebSearch`
   (e.g. "TICKER quarterly EPS revenue last quarter year-over-year") — FMP quarterly
   statements are usually plan-gated, so web is the primary source for the C factor.
-- News/catalysts + institutional ownership trend: `WebSearch`.
+- News/catalysts + institutional ownership trend: `WebSearch`. Include competitive and
+  regulatory developments in this search — they feed both the N factor and the long-term
+  thesis read (step 4), so one pass covers both.
 
 For an **ETF**: FMP gates ETF symbols on lower-tier plans (quote, quote-change, chart,
 and etfAndMutualFunds all return ACCESS DENIED). Try `quote` once — if denied, get the
@@ -62,16 +64,30 @@ points with `WebSearch`/`WebFetch` and state in the output that figures are appr
 Score each CAN SLIM factor per the methodology rubric, compute the weighted 0–99 composite,
 apply the market-direction cap, and map to a verdict: **≥80 Buy · 50–79 Hold · <50 Sell**.
 
-### 4. Output — keep it short
+### 4. Long-term thesis read (stocks only)
+
+The CAN SLIM score and its sell rules are a timing signal tuned for a months-long hold,
+not a multi-year one. Alongside the score, label the **long-term thesis** — **Intact**,
+**At Risk**, or **Broken** — per `references/methodology.md` §Long-term thesis read,
+using data already gathered in step 2. Skip this entirely for ETFs. The score and the
+thesis label are allowed to disagree; when they do, say so rather than collapsing them
+into one verdict.
+
+### 5. Output — keep it short
 
 Per ticker, output exactly this shape (no tables, no factor-by-factor dump):
 
 ```
 **TICKER — VERDICT (score/99)** · $price, ±x% off 52-wk high
+Long-term thesis: <pick one: Intact | At Risk | Broken>   ← stocks only; omit line for ETFs
 
 3–6 sentence synopsis: the 2–3 factors that drove the verdict (with the key numbers,
 e.g. "Q EPS +54% YoY, accelerating"), the biggest weakness or risk, and the current
 market-direction context. If data was degraded (no FMP, no 13F), say so in one clause.
+
+1–2 sentences on the thesis label: the core-business, capital-allocation, or moat read
+that drove it. If the score and thesis point different ways (e.g. Sell score, Intact
+thesis), name that gap explicitly — it's what a long-term holder actually needs.
 ```
 
 End the message (once, not per ticker) with a one-line note that this is an automated
