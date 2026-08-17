@@ -62,16 +62,31 @@ points with `WebSearch`/`WebFetch` and state in the output that figures are appr
 Score each CAN SLIM factor per the methodology rubric, compute the weighted 0–99 composite,
 apply the market-direction cap, and map to a verdict: **≥80 Buy · 50–79 Hold · <50 Sell**.
 
-### 4. Output — keep it short
+### 4. Long-term thesis read
+
+CAN SLIM's score and sell rules are a trading/timing signal, not a long-term hold/exit
+rule. Alongside the score, independently label the **long-term thesis**: **Intact / At
+Risk / Broken**, per `references/methodology.md` §Long-term thesis read. This mostly
+reuses data already gathered in step 2 — no separate research pass needed unless the
+step-2 news search didn't cover competitive/regulatory context. The score and the thesis
+read are allowed to disagree; when they do, say so explicitly rather than collapsing them
+into one verdict.
+
+### 5. Output — keep it short
 
 Per ticker, output exactly this shape (no tables, no factor-by-factor dump):
 
 ```
 **TICKER — VERDICT (score/99)** · $price, ±x% off 52-wk high
+Long-term thesis: INTACT / AT RISK / BROKEN
 
 3–6 sentence synopsis: the 2–3 factors that drove the verdict (with the key numbers,
 e.g. "Q EPS +54% YoY, accelerating"), the biggest weakness or risk, and the current
 market-direction context. If data was degraded (no FMP, no 13F), say so in one clause.
+
+1–2 sentences on the thesis label: the core-business/capital-allocation/moat read behind
+it. If the score and thesis point different directions (e.g. Sell score, Intact thesis),
+name that gap explicitly — it's the signal a long-term holder actually needs.
 ```
 
 End the message (once, not per ticker) with a one-line note that this is an automated

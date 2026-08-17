@@ -157,3 +157,40 @@ web fallback for those. Everything in the "primary" column below is confirmed wo
 Degrade gracefully: a missing single input means score that factor from the best available
 proxy and flag it; it never blocks the whole analysis. If an FMP endpoint returns ACCESS
 DENIED, don't retry it — use the fallback column.
+
+## Long-term thesis read (separate from the score)
+
+CAN SLIM is a trading system: its sell rules (8% stop-loss, distribution-day breaks, RS
+deterioration) are tuned for a holding period of months, not years. A long-term investor
+who exits on those signals will get shaken out of positions they meant to hold for years.
+So alongside the 0–99 score, produce a second, independent read: is the **long-term
+thesis** Intact, At Risk, or Broken. This does not change the CAN SLIM score or verdict —
+it's reported next to it, and the two are allowed to disagree.
+
+Judge the thesis on four questions, mostly answerable from data already gathered in step 2
+(no separate data-gathering pass required, though one extra targeted `WebSearch` for
+competitive/regulatory news is reasonable if step 2's news search didn't cover it):
+
+1. **Core business durability** — is the primary revenue engine still growing and
+   profitable on its own (segment revenue/margin trend from the annual/quarterly figures
+   already pulled), independent of the stock's price action?
+2. **Capital allocation discipline** — is heavy spending (capex, M&A, R&D ramps) a
+   reasoned bet with a plausible return, or empire-building/value-destructive? Use
+   management's own guidance/commentary from the news search as the read, not the capex
+   number alone.
+3. **Balance sheet & share count trend** — buybacks shrinking the share count and a
+   manageable debt load favor "intact"; heavy dilution or rising leverage favor "at risk."
+   (Reuses the S-factor data already pulled.)
+4. **Moat / competitive position** — is competitive pressure, regulatory risk, or
+   technological disruption eroding the business's position over a multi-year horizon?
+
+Label:
+- **Intact** — all four hold up; nothing structural has changed even if the stock/score
+  is weak short-term.
+- **At Risk** — one or two questions are genuinely uncertain or turning negative (e.g. an
+  unproven capex bet, a real competitive threat) but not yet disqualifying.
+- **Broken** — the core business is shrinking/impaired, capital is being destroyed, or the
+  moat has clearly failed. This is a real reason to exit regardless of the CAN SLIM score.
+
+When the CAN SLIM verdict and the thesis read disagree (e.g. Sell score / Intact thesis),
+say so explicitly — that gap is the useful signal: momentum/timing vs. reasons to hold.
