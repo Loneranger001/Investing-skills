@@ -1,94 +1,142 @@
 ---
 name: canslim
-description: IBD-style CAN SLIM fundamental analysis of a US stock or ETF ticker. Produces a 0-99 composite score, a Buy/Hold/Sell verdict, a separate Intact/At Risk/Broken read on the long-term thesis, and a short synopsis explaining both. Use when the user asks to analyze a ticker, asks "is TICKER a buy?", asks whether to hold or exit a position, asks for a CAN SLIM or IBD-style check, or invokes /canslim with one or more tickers.
+description: CAN SLIM-based analysis of a US stock or ETF for a 2-5 year position investor who times entries and exits on the weekly chart. Produces a 0-99 Quality score (worth owning for years?), a 0-99 weekly Timing score (good entry now?), an Intact/At Risk/Broken thesis label, and separate actions for new money (Buy / Buy on pullback / Watchlist / Avoid) and for current holders (Hold / Hold, re-check / Reduce / Exit), with the weekly price levels that would change them. Use when the user asks to analyze a ticker, asks "is TICKER a buy?", asks whether to hold, add to, or exit a position, asks for a CAN SLIM or IBD-style check, or invokes /canslim with one or more tickers.
 argument-hint: <TICKER> [TICKER ...]
 ---
 
-# CAN SLIM Ticker Analysis
+# CAN SLIM for 2–5 year position investing
 
-Analyze the ticker(s) given in the arguments (or in the user's message) using IBD's CAN SLIM
-methodology and deliver a **short synopsis** — not a long report.
+The user holds positions for 2–5 years and makes entry and exit decisions on the weekly
+chart. The skill answers three separate questions:
 
-Read `references/methodology.md` (in this skill's directory) for exact thresholds, the scoring
-rubric, and the data-source map before evaluating. Follow it strictly so scores are consistent
-across runs.
+1. **Quality (0–99)**: is this a business worth owning for 2–5 years? Based on CAN SLIM's
+   C and A, plus returns on capital, share count and balance sheet, newness, and
+   institutional sponsorship, with a valuation check.
+2. **Timing (0–99)**: is the weekly chart a good entry right now? Based on the weekly
+   stage (10-wk and 40-wk MAs), relative strength vs. the S&P 500, entry location, and the
+   market's weekly trend.
+3. **Thesis (Intact / At Risk / Broken)**: is the reason to own it still true? This, not
+   short-term price action, drives what holders should do.
+
+IBD's daily-chart sell rules (8% stop-loss, distribution days, RS dips) are deliberately
+**not** used. They are tuned for months-long trades and shake a 2–5 year holder out of
+good positions. Holder exits come from a Broken thesis or a weekly Stage 4 (price below a
+falling 40-wk MA).
+
+**All arithmetic happens in `scripts/score.py`.** Your job is to gather inputs exactly as
+specified, make four categorical judgments, run the script, and write the synopsis. Never
+hand-compute, round, or adjust a score or action. Formulas and thresholds are in
+`references/methodology.md`.
 
 ## Workflow
 
-### 1. Resolve the ticker
+### 1. Resolve the ticker(s)
 
-- Use `mcp__FMP__quote` (endpoint `quote`) to confirm the symbol and get price, 52-week
-  high/low, avg volume, market cap, shares outstanding.
-- Use `mcp__FMP__company` (endpoint `profile-symbol`) to get the profile; its `isEtf` /
-  `isFund` flags decide the mode. ETF or fund → use **ETF mode** (methodology §ETF mode).
-  Stock → full CAN SLIM.
-- If the symbol is unknown, try `mcp__FMP__search` (endpoint `search-symbol`) and ask the
-  user only if genuinely ambiguous.
+- `mcp__FMP__company` (`profile-symbol`): `isEtf`/`isFund` decide the mode; also gives
+  sector and industry. ETF or fund → step 3b.
+- Unknown symbol → `mcp__FMP__search` (`search-symbol`). Ask the user only if genuinely
+  ambiguous. FMP spells share classes with a dash (`BRK-B`).
 
-### 2. Gather data (run independent calls in parallel)
+### 2. Market (once per run, shared by every ticker)
 
-Several FMP endpoints are plan-gated (quarterly/TTM statements, news, earnings calendar,
-form13F). Use the cheap, plan-safe endpoints below first; the methodology's data map lists
-the fallback for anything that errors with ACCESS DENIED — never let one gated endpoint
-block the analysis.
+In parallel: `mcp__FMP__indexes` (`index-quote`) for `^GSPC` and `^IXIC` (price,
+`priceAvg50`, `priceAvg200`), and `mcp__FMP__quote` (`quote-change`) for both (3M/6M/1Y).
+These fill the `market` block.
 
-For a **stock**, fetch in parallel:
-- Multi-period returns for the stock AND `^GSPC`: `mcp__FMP__quote`
-  (endpoint `quote-change`) → powers the Relative Strength factor directly.
-- Annual income statements, last 4 years: `mcp__FMP__statements`
-  (endpoint `income-statement`, period `annual`, limit 4) → annual EPS trend, revenue,
-  share count trend (`weightedAverageShsOutDil`).
-- Annual ratios: `mcp__FMP__statements` (endpoint `metrics-ratios`, period `annual`,
-  limit 2) → compute ROE = `netIncomePerShare / shareholdersEquityPerShare`; margins, debt.
-- Float: `mcp__FMP__company` (endpoint `shares-float`).
-- Market direction: `mcp__FMP__indexes` (endpoint `index-quote`) for `^GSPC` and `^IXIC` —
-  each quote already includes `priceAvg50` and `priceAvg200`; no history needed.
-- Quarterly EPS/revenue (last 2–3 quarters, YoY): `WebSearch`
-  (e.g. "TICKER quarterly EPS revenue last quarter year-over-year") — FMP quarterly
-  statements are usually plan-gated, so web is the primary source for the C factor.
-- News/catalysts + institutional ownership trend: `WebSearch`. Include competitive and
-  regulatory developments in this search — they feed both the N factor and the long-term
-  thesis read (step 4), so one pass covers both.
+### 3a. Stock data (run in parallel)
 
-For an **ETF**: FMP gates ETF symbols on lower-tier plans (quote, quote-change, chart,
-and etfAndMutualFunds all return ACCESS DENIED). Try `quote` once — if denied, get the
-ETF's price, 52-week high, 50/200-day moving-average status, 3M/6M/1Y returns, expense
-ratio, and top holdings via `WebSearch`. The `^GSPC`/`^IXIC` index quotes and `^GSPC`
-`quote-change` still work on FMP for the market-direction and RS comparisons.
+**FMP plan rule: keep `limit` ≤ 5.** On this plan the block is on larger limits, not on
+the endpoints. If a call still returns ACCESS DENIED, don't retry it; use the fallback in
+the methodology's data map.
 
-**Fallback:** if FMP tools are not available in the session at all, gather the same data
-points with `WebSearch`/`WebFetch` and state in the output that figures are approximate.
+| Call | Fills |
+|---|---|
+| `quote` (`quote`) | `price`, `year_high`, `year_low`, `ma50` ← `priceAvg50`, `ma200` ← `priceAvg200` |
+| `quote` (`quote-change`) | `returns` 3M / 6M / 1Y |
+| `statements` (`income-statement`, period `annual`, limit 4) | `annual[]`, oldest → newest: `eps` ← `epsDiluted`, `rev` ← `revenue`, `op_inc` ← `operatingIncome`, `shares` ← `weightedAverageShsOutDil`, `ebitda` |
+| `statements` (`income-statement`, period `quarter`, limit 5) | `quarters[0]` = newest row, year-ago = 5th row; `last4_eps` = `epsDiluted` of rows 1–4 |
+| `statements` (`income-statement`, period `Q<n>`, limit 2), once for each of the two fiscal quarters before the newest | `quarters[1]`, `quarters[2]`, each with its year-ago row |
+| `statements` (`key-metrics`, period `annual`, limit 1) | `roe` ← `returnOnEquity`, `roic` ← `returnOnInvestedCapital`, `net_debt_to_ebitda` ← `netDebtToEBITDA`, `fcf_yield` ← `freeCashFlowYield` |
+| `calendar` (`earnings-company`, limit 5) | `next_earnings` = date of the row whose `epsActual` is null |
 
-### 3. Evaluate and score
+- Copy numbers exactly as returned. Keep units consistent within a field (e.g. all revenue
+  in $M); ratios stay as decimals.
+- FMP `period` labels are **fiscal**. If the newest quarter is Q2, the prior two are Q1
+  (same fiscal year) and Q4 (previous fiscal year).
+- Use FMP's GAAP diluted EPS everywhere. Don't mix in adjusted EPS from the web; the
+  script detects GAAP distortion itself by comparing against operating income.
 
-Score each CAN SLIM factor per the methodology rubric, compute the weighted 0–99 composite,
-apply the market-direction cap, and map to a verdict: **≥80 Buy · 50–79 Hold · <50 Sell**.
+### 3b. ETF data
 
-### 4. Long-term thesis read (stocks only)
+FMP blocks ETF symbols on this plan (`quote` and `quote-change` both return ACCESS
+DENIED). Try `quote` once, then take everything from **one** web source
+(stockanalysis.com/etf/TICKER works): price, 52-wk high, 50-day and 200-day MA, 3M/6M/1Y
+returns, expense ratio, top holdings. Also take **SPY's 3M/6M/1Y from the same source and
+date** and put them in `benchmark_returns`; comparing a stale web snapshot against live
+`^GSPC` data skews RS. Set `etf_class` to `equity` | `leveraged` | `bond` | `commodity` |
+`currency` | `other`. Skip step 4.
 
-The CAN SLIM score and its sell rules are a timing signal tuned for a months-long hold,
-not a multi-year one. Alongside the score, label the **long-term thesis** — **Intact**,
-**At Risk**, or **Broken** — per `references/methodology.md` §Long-term thesis read,
-using data already gathered in step 2. Skip this entirely for ETFs. The score and the
-thesis label are allowed to disagree; when they do, say so rather than collapsing them
-into one verdict.
+### 4. Judgments (stocks only)
 
-### 5. Output — keep it short
+Run two web searches, each with the month and year in the query. Check the date on every
+result: searches often return last year's quarter. Ignore anything older than 6 months.
 
-Per ticker, output exactly this shape (no tables, no factor-by-factor dump):
+1. `TICKER news <Month YYYY> guidance product launch competition regulation`
+2. `TICKER institutional ownership 13F <latest quarter YYYY>`
+
+Then set:
+
+- `newness`: `major` (genuine new product, market, or management, or guidance raised
+  above consensus within 6 months) | `ordinary` | `stale` (no catalyst, deteriorating
+  narrative). If no dated news turns up, **omit it**: the factor is dropped, not guessed.
+- `institutional`: `trend` rising | flat | falling (13F holder and share changes over
+  recent quarters), plus `pct` (0–1). Omit whatever is unknown.
+- `thesis.capital`: `pass` (spending has a stated, plausible payback; buybacks at sane
+  prices) | `watch` (large unproven bet, big M&A, capex ramp ahead of demand) | `fail`
+  (writedowns, value-destroying deals, empire-building).
+- `thesis.moat`: `pass` (no evidence of share or pricing loss) | `watch` (credible
+  competitive, regulatory, or technology threat in the news, no measurable damage yet) |
+  `fail` (measurable share loss, pricing power gone, or regulation impairing the core
+  business).
+- `thesis.core` and `thesis.balance`: leave as `"auto"`. The script derives them from
+  revenue, margins, share count, leverage, and free cash flow. Override only for
+  pre-revenue companies (judge commercial traction and cash runway) and say why in
+  `evidence`.
+
+Put a one-line source for each judgment under `evidence` (the script ignores it; it's the
+audit trail). List web-sourced factors in `web_sourced`, normally `["N", "I"]`.
+
+### 5. Score
+
+Write one JSON file in the shape of `scripts/example_input.json` to a temp location (your
+scratchpad if you have one), then run:
 
 ```
-**TICKER — VERDICT (score/99)** · $price, ±x% off 52-wk high
-Long-term thesis: <pick one: Intact | At Risk | Broken>   ← stocks only; omit line for ETFs
-
-3–6 sentence synopsis: the 2–3 factors that drove the verdict (with the key numbers,
-e.g. "Q EPS +54% YoY, accelerating"), the biggest weakness or risk, and the current
-market-direction context. If data was degraded (no FMP, no 13F), say so in one clause.
-
-1–2 sentences on the thesis label: the core-business, capital-allocation, or moat read
-that drove it. If the score and thesis point different ways (e.g. Sell score, Intact
-thesis), name that gap explicitly — it's what a long-term holder actually needs.
+python3 <this skill's directory>/scripts/score.py /path/to/input.json
 ```
 
-End the message (once, not per ticker) with a one-line note that this is an automated
-CAN SLIM-style analysis, not financial advice.
+Multiple tickers go in one file under `tickers`, sharing one `market` block. If code
+execution isn't available, apply `references/methodology.md` by hand and write "scored
+manually" in the output.
+
+### 6. Output
+
+Per ticker, exactly this shape:
+
+```
+<summary_lines[0]>
+<summary_lines[1]>
+
+3–5 sentence synopsis: what drives Quality (with the key numbers), what the weekly chart
+says and which level changes the call, the biggest risk to the 2–5 yr thesis, and the
+market backdrop. Mention any flag that matters (GAAP distortion, valuation, missing data).
+
+<summary_lines[2]>
+<summary_lines[3]>
+`<factor_line>`
+```
+
+Paste the summary lines and factor line verbatim: don't reword actions, levels, or
+numbers. For ETFs, name what the fund holds and its expense ratio in the synopsis. End the
+message once (not per ticker) with a one-line note that this is an automated CAN
+SLIM-style analysis, not financial advice.
