@@ -140,11 +140,43 @@ Without 6M/1Y returns (IPO), slope = rising if ma50 > ma200, else falling (flagg
   Best entries are at or just above the 10-wk line near highs, not 30% extended.
 - **M:** the weaker index's W score.
 
+## Leader
+
+A stock is a **leader** only if all four hold:
+
+1. Quality ≥ 70 (worth owning for years),
+2. thesis Intact,
+3. its own weekly chart is in Stage 2 above the 40-wk MA,
+4. weighted RS beats the S&P 500 by ≥ +10pp (L ≥ 70).
+
+RS is only 30% of Timing, so without this explicit gate a stock trailing the market can
+still reach Timing 70 on trend and market strength alone. +10pp is looser than IBD's RS
+Rating ≥ 80 (a percentile rank against all stocks, which needs whole-market data this
+skill doesn't have). Raise `LEADER_RS_PP` in `score.py` to tighten it. ETFs skip 1–2;
+non-equity ETFs also skip 4.
+
+## Market gate
+
+Over both indexes (`market_regime` in `score.py`):
+
+| Regime | Condition | New buys | Timing cap |
+|---|---|---|---|
+| ok | both indexes above their 40-wk MA | normal rules | — |
+| stage1 | every index below its 40-wk is in Stage 1 (40-wk flat after a down year) | **starter (half-size) buys in leaders only** | 69 |
+| below40 | any index below its 40-wk otherwise (correction under a rising 40-wk, Stage 3 breakdown) | none | 69 |
+| stage4 | any index below a falling 40-wk | none | 49 |
+
+Stage 1 is the exception because it's where new bull markets start. The leaders of the
+next advance tend to be the first stocks to break out while the indexes are still basing,
+and buying them then is the "buy cheap" entry. A Stage 1 *stock* is never a buy (it's
+Watchlist until it reaches Stage 2): its base can last years or roll over, and its RS is
+weak by definition.
+
+The market gate never applies to holders.
+
 ## Caps and missing data
 
-- Weaker index in **Stage 4** (below a falling 40-wk MA) → Timing capped at 49: no new
-  Buys. A normal correction (index below a still-rising 40-wk, or a Stage 3 top) is **not**
-  capped; it only lowers Timing through M (15%), so leaders can still be bought.
+- Market caps as in the table above.
 - W or L missing → Timing capped at 69. A or C missing → Quality capped at 69.
 - Any other missing factor is dropped and the rest re-weighted.
 
@@ -167,16 +199,18 @@ a bad capital cycle far more often than a shrinking core or a lost moat.
 **New money** (first match wins):
 
 1. Thesis Broken, or Quality < 55 → **Avoid**. Weekly Stage 4 → **Avoid**.
-2. Quality ≥ 70, thesis Intact, Stage 2 above the 40-wk, and >20% above the 10-wk →
-   **Buy on pullback** (level: the 10-wk MA). Checked before Buy, because a strong trend
-   and RS can lift Timing past 70 even when the stock is extended.
-3. Quality ≥ 70, thesis Intact, Stage 2 above the 40-wk, Timing ≥ 70 → **Buy**.
-4. Anything else → **Watchlist**, with every reason that applies: Quality under 70,
-   thesis At Risk, the weekly level to reclaim (40-wk, else 10-wk), market cap, lagging
-   RS.
+2. Leader, regime ok or stage1, and >20% above the 10-wk → **Buy on pullback** (level:
+   the 10-wk MA). Checked first, because a strong trend and RS can lift Timing past 70
+   even when the stock is extended.
+3. Leader, regime stage1 → **Buy (starter)**: half size; add the rest when the basing
+   index closes a week above its 40-wk MA.
+4. Leader, regime ok, Timing ≥ 70 → **Buy**.
+5. Anything else → **Watchlist**, with every reason that applies: Quality under 70, thesis
+   At Risk, the weekly level to reclaim (40-wk, else 10-wk), not a leader (RS vs. the
+   +10pp bar), the market gate.
 
-Earnings within 14 days: a Buy gets "start half size or wait for the report"; a Watchlist
-gets the date. ETFs skip the Quality and thesis tests.
+Earnings within 14 days: a Buy gets "start half size or wait for the report", a starter
+gets "consider waiting for the report", and a Watchlist gets the date.
 
 **Holder:**
 

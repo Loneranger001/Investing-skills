@@ -1,6 +1,6 @@
 ---
 name: canslim
-description: CAN SLIM-based analysis of a US stock or ETF for a 2-5 year position investor who times entries and exits on the weekly chart. Produces a 0-99 Quality score (worth owning for years?), a 0-99 weekly Timing score (good entry now?), an Intact/At Risk/Broken thesis label, and separate actions for new money (Buy / Buy on pullback / Watchlist / Avoid) and for current holders (Hold / Hold, re-check / Reduce / Exit), with the weekly price levels that would change them. Use when the user asks to analyze a ticker, asks "is TICKER a buy?", asks whether to hold, add to, or exit a position, asks for a CAN SLIM or IBD-style check, or invokes /canslim with one or more tickers.
+description: CAN SLIM-based analysis of a US stock or ETF for a 2-5 year position investor who times entries and exits on the weekly chart. Produces a 0-99 Quality score (worth owning for years?), a 0-99 weekly Timing score (good entry now?), an Intact/At Risk/Broken thesis label, and separate actions for new money (Buy / Buy on pullback / Buy (starter) / Watchlist / Avoid) and for current holders (Hold / Hold, re-check / Reduce / Exit), with the weekly price levels that would change them. Use when the user asks to analyze a ticker, asks "is TICKER a buy?", asks whether to hold, add to, or exit a position, asks for a CAN SLIM or IBD-style check, or invokes /canslim with one or more tickers.
 argument-hint: <TICKER> [TICKER ...]
 ---
 
@@ -21,7 +21,9 @@ chart. The skill answers three separate questions:
 IBD's daily-chart sell rules (8% stop-loss, distribution days, RS dips) are deliberately
 **not** used. They are tuned for months-long trades and shake a 2–5 year holder out of
 good positions. Holder exits come from a Broken thesis or a weekly Stage 4 (price below a
-falling 40-wk MA).
+falling 40-wk MA). New buys need a **leader** (Quality ≥ 70, thesis Intact, Stage 2,
+beating the S&P 500 by ≥ 10pp) and pause while either index is below its 40-wk MA,
+except half-size starter buys in leaders while the market bases in Stage 1.
 
 **All arithmetic happens in `scripts/score.py`.** Your job is to gather inputs exactly as
 specified, make four categorical judgments, run the script, and write the synopsis. Never

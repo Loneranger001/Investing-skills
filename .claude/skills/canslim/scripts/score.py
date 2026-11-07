@@ -48,6 +48,7 @@ QUALITY_BUY = 70      # Quality needed for a Buy
 QUALITY_FLOOR = 55    # below this: Avoid for new money
 TIMING_BUY = 70       # Timing needed for a Buy
 EXTENDED_PCT = 20     # % above the 10-wk MA that counts as extended
+LEADER_RS_PP = 10     # weighted 3/6/12-mo return must beat the S&P 500 by this many pp (L = 70)
 EARNINGS_WINDOW = 14  # days; flag entries this close to a report
 INDEX_NAMES = {"^GSPC": "S&P 500", "^IXIC": "Nasdaq", "^DJI": "Dow", "^RUT": "Russell 2000"}
 
@@ -409,6 +410,32 @@ def market_read(market):
     return worst_sym, reads[worst_sym], reads
 
 
+def market_regime(reads):
+    """Gate for new buys, over both indexes.
+
+    stage4  - any index below a falling 40-wk: no new buys
+    below40 - any index below its 40-wk (correction or Stage 3 breakdown): no new buys
+    stage1  - every index that is below its 40-wk is basing (flat 40-wk after a decline):
+              starter buys in leaders only, the early-bull-market entry
+    ok      - both indexes above their 40-wk MAs
+    """
+    if not reads:
+        return None, []
+    s4 = [k for k, v in reads.items() if v["stage"] == 4]
+    if s4:
+        return "stage4", s4
+    below = [k for k, v in reads.items() if not v["above40"]]
+    if not below:
+        return "ok", []
+    if all(reads[k]["stage"] == 1 for k in below):
+        return "stage1", below
+    return "below40", below
+
+
+def index_names(syms):
+    return " and ".join(INDEX_NAMES.get(s, s) for s in syms)
+
+
 # ---------------------------------------------------------------------------- thesis
 def core_auto(quarters, annual):
     q_rev = [yoy(q.get("rev"), q.get("rev_ya")) for q in (quarters or [])[:2]]
@@ -466,7 +493,21 @@ def thesis_read(t, quarters, annual):
 
 
 # --------------------------------------------------------------------------- actions
-def new_money(is_etf, q, thesis, timing, stage, ext, L, mkt_cap_reason, ma10, ma40, earn_days):
+def is_leader(is_etf, q, thesis, stage, rs_delta, rs_applies):
+    """Leader = own-it-for-years fundamentals + its own Stage 2 chart + beating the S&P 500.
+
+    All four are required. RS alone is only 30% of Timing, so without this gate a stock
+    lagging the market could still score a Buy on trend and market strength.
+    """
+    quality_ok = is_etf or (q is not None and q >= QUALITY_BUY)
+    thesis_ok = is_etf or thesis == "Intact"
+    stage2 = bool(stage) and stage["stage"] == 2 and stage["above40"]
+    rs_ok = (not rs_applies) or (rs_delta is not None and rs_delta >= LEADER_RS_PP)
+    return quality_ok and thesis_ok and stage2 and rs_ok
+
+
+def new_money(is_etf, q, thesis, timing, stage, ext, rs_delta, rs_applies, regime, regime_syms,
+              ma10, ma40, earn_days):
     if not is_etf:
         if thesis == "Broken":
             return "Avoid", "thesis Broken"
@@ -475,18 +516,23 @@ def new_money(is_etf, q, thesis, timing, stage, ext, L, mkt_cap_reason, ma10, ma
     if stage and stage["stage"] == 4:
         return "Avoid", "weekly Stage 4 downtrend"
 
-    quality_ok = is_etf or (q is not None and q >= QUALITY_BUY)
-    thesis_ok = is_etf or thesis == "Intact"
-    stage2 = bool(stage) and stage["stage"] == 2 and stage["above40"]
+    leader = is_leader(is_etf, q, thesis, stage, rs_delta, rs_applies)
+    buy_ok = regime in ("ok", "stage1", None)
+    names = index_names(regime_syms)
     soon = earn_days is not None and 0 <= earn_days <= EARNINGS_WINDOW
     earn = f"; earnings in {earn_days}d, start half size or wait for the report" if soon else ""
 
     # Extension is checked first: a strong trend + RS can carry Timing past 70 even when
     # the stock is far above its 10-wk line, and buying there is chasing.
-    if quality_ok and thesis_ok and stage2 and ext is not None and ext > EXTENDED_PCT:
+    if leader and buy_ok and ext is not None and ext > EXTENDED_PCT:
         return "Buy on pullback", f"extended {ext:.0f}% above the 10-wk MA; wait for a pullback toward {money(ma10)}{earn}"
-    if quality_ok and thesis_ok and stage2 and timing is not None and timing >= TIMING_BUY:
-        return "Buy", f"Stage 2 above the 10/40-wk MAs, not extended{earn}"
+    if leader and regime == "stage1":
+        tail = f"; earnings in {earn_days}d, consider waiting for the report" if soon else ""
+        return "Buy (starter)", (f"market basing in Stage 1 and this leader is already in Stage 2; "
+                                 f"half size now, add the rest when the {names} closes a week above "
+                                 f"its 40-wk MA{tail}")
+    if leader and buy_ok and timing is not None and timing >= TIMING_BUY:
+        return "Buy", f"leader in Stage 2 above the 10/40-wk MAs, not extended{earn}"
 
     reasons = []
     if not is_etf and q is not None and q < QUALITY_BUY:
@@ -500,10 +546,15 @@ def new_money(is_etf, q, thesis, timing, stage, ext, L, mkt_cap_reason, ma10, ma
             reasons.append(f"wait for a weekly close back above the 10-wk MA ({money(ma10)})")
         elif stage["stage"] != 2:
             reasons.append(f"{stage['label']}, wait for Stage 2")
-    if mkt_cap_reason:
-        reasons.append(mkt_cap_reason)
-    if L is not None and L < 50:
-        reasons.append("lagging the S&P 500")
+    if rs_applies and rs_delta is not None and rs_delta < LEADER_RS_PP:
+        reasons.append(f"not a leader yet: RS {rs_delta:+.0f}pp vs the S&P 500 (needs +{LEADER_RS_PP})")
+    if regime == "stage4":
+        reasons.append(f"{names} in a Stage 4 downtrend, no new buys")
+    elif regime == "below40":
+        its = "its 40-wk MA" if len(regime_syms) == 1 else "their 40-wk MAs"
+        reasons.append(f"{names} below {its}, no new buys until it recovers")
+    elif regime == "stage1":
+        reasons.append("market basing in Stage 1, starter buys in leaders only")
     if not reasons:
         reasons.append("wait for a new base or breakout")
     if soon:
@@ -540,7 +591,6 @@ def score_ticker(t, market, as_of):
 
     # --- market (shared) and benchmark for RS
     worst_sym, worst, mreads = market_read(market)
-    worst_name = INDEX_NAMES.get(worst_sym, worst_sym)
     bench = t.get("benchmark_returns") or ((market or {}).get("^GSPC") or {}).get("returns")
 
     # --- timing
@@ -559,11 +609,16 @@ def score_ticker(t, market, as_of):
     tf = {"W": stage["score"] if stage else None, "L": L, "E": E,
           "M": worst["score"] if worst else None}
     timing = to99(weighted(tf, TIMING_WEIGHTS))
-    # Only a Stage 4 market blocks new buys. A normal correction (index below a still-rising
-    # 40-wk) is not capped; it just weighs on Timing through M, so leaders stay buyable.
-    mkt_cap_reason = None
-    if timing is not None and worst and worst["stage"] == 4:
-        timing, mkt_cap_reason = min(timing, 49), f"{worst_name} in a Stage 4 downtrend, no new buys"
+    # Market gate: no new buys while either index is below its 40-wk MA, except starter
+    # buys in leaders while the market is basing in Stage 1 (see market_regime).
+    regime, regime_syms = market_regime(mreads)
+    if regime is None:
+        flags.append("market data missing, market rule not applied")
+    if timing is not None:
+        if regime == "stage4":
+            timing = min(timing, 49)
+        elif regime in ("below40", "stage1"):
+            timing = min(timing, 69)
     if timing is not None and (tf["W"] is None or tf["L"] is None):
         timing = min(timing, 69)
         flags.append("Timing capped at 69: W or L missing")
@@ -602,8 +657,11 @@ def score_ticker(t, market, as_of):
 
     # --- actions
     tl = thesis["label"] if thesis else None
-    nm_action, nm_note = new_money(is_etf, quality, tl, timing, stage, ext, L, mkt_cap_reason,
-                                   ma50, ma200, earn_days)
+    rs_delta = ldet.get("rs_delta_pp")
+    rs_applies = not (is_etf and etf_class in ("bond", "commodity", "currency", "other"))
+    leader = is_leader(is_etf, quality, tl, stage, rs_delta, rs_applies)
+    nm_action, nm_note = new_money(is_etf, quality, tl, timing, stage, ext, rs_delta, rs_applies,
+                                   regime, regime_syms, ma50, ma200, earn_days)
     h_action, h_note = holder(is_etf, quality, tl, stage, ma200)
 
     # --- presentation
@@ -617,6 +675,8 @@ def score_ticker(t, market, as_of):
     if not is_etf:
         line2.append(f"Quality {quality if quality is not None else 'n/a'}")
     line2.append(f"Timing {timing if timing is not None else 'n/a'}")
+    if rs_delta is not None:
+        line2.append(f"RS {rs_delta:+.0f}pp vs S&P" + (" (leader)" if leader else ""))
     if thesis:
         line2.append(f"Thesis {tl}" + (" (low confidence)" if thesis["low_confidence"] else ""))
     if stage:
@@ -647,11 +707,12 @@ def score_ticker(t, market, as_of):
         "factor_line": factor_line,
         "quality": quality,
         "timing": timing,
+        "leader": leader,
         "new_money": {"action": nm_action, "note": nm_note},
         "holder": {"action": h_action, "note": h_note},
         "thesis": thesis,
         "weekly": stage,
-        "market": {"weakest": worst_sym, "reads": {k: {"stage": v["stage"], "label": v["label"],
+        "market": {"regime": regime, "weakest": worst_sym, "reads": {k: {"stage": v["stage"], "label": v["label"],
                                                       "score": v["score"]} for k, v in mreads.items()}},
         "factors": {k: r1(v) for k, v in allf.items()},
         "details": {**qdet, "L": ldet, "valuation": val_det,

@@ -15,12 +15,15 @@ weekly chart. For a US stock or ETF it returns:
 - **Timing 0–99**: is the weekly chart a good entry now? Weekly stage (10-wk / 40-wk MAs),
   relative strength vs. the S&P 500, extension, and the market's weekly trend.
 - **Thesis**: Intact / At Risk / Broken.
-- **Two actions**: one for new money (Buy · Buy on pullback · Watchlist · Avoid) and one
-  for current holders (Hold · Hold, re-check · Reduce · Exit), each with the weekly levels
-  that would change it.
+- **Two actions**: one for new money (Buy · Buy on pullback · Buy (starter) · Watchlist ·
+  Avoid) and one for current holders (Hold · Hold, re-check · Reduce · Exit), each with
+  the weekly levels that would change it.
 
 IBD's daily sell rules (8% stop, distribution days) are deliberately left out. Holders exit
-on a broken thesis or a weekly Stage 4, not on daily noise.
+on a broken thesis or a weekly Stage 4, not on daily noise. New buys are for **leaders**
+only (Quality ≥ 70, thesis Intact, Stage 2, beating the S&P 500 by ≥ 10pp) and pause
+while either index is below its 40-wk MA, except half-size starter buys in leaders while
+the market bases in Stage 1.
 
 ```
 /canslim NVDA
@@ -33,9 +36,9 @@ Example output (live data, 2026-11-07):
 
 ```
 **NVDA — Watchlist** · $186.64 · 23% off 52-wk high · earnings 2026-11-17 (in 10d)
-Quality 90 · Timing 32 · Thesis At Risk · Weekly: Stage 2 correction below 40-wk (10-wk $220.64 · 40-wk $204.66)
+Quality 90 · Timing 32 · RS -10pp vs S&P · Thesis At Risk · Weekly: Stage 2 correction below 40-wk (10-wk $220.64 · 40-wk $204.66)
 …synopsis…
-New money: Watchlist. Thesis At Risk, let the next quarter resolve it; wait for a weekly close above the 40-wk MA ($204.66); …
+New money: Watchlist. Thesis At Risk, let the next quarter resolve it; wait for a weekly close above the 40-wk MA ($204.66); not a leader yet: RS -10pp vs the S&P 500 (needs +10); Nasdaq below its 40-wk MA, no new buys until it recovers; earnings in 10d
 If you hold: Hold, re-check. Thesis At Risk, revisit after the next report; below the 40-wk MA ($204.66); exit if the 40-wk turns down (Stage 4)
 `A 100 · C 100 · R 100 · S 88 · N 90 · I 35 | W 35 · L 24 · E 37 · M 35 | conf High | web: I, N`
 ```

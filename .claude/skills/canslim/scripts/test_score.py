@@ -12,6 +12,10 @@ HEALTHY_MARKET = {
     "^GSPC": {"price": 110, "ma50": 105, "ma200": 95, "returns": {"3M": 5, "6M": 10, "1Y": 20}},
     "^IXIC": {"price": 110, "ma50": 105, "ma200": 95, "returns": {"3M": 5, "6M": 10, "1Y": 20}},
 }
+# Below a still-rising 40-wk: Stage 2 correction.
+CORRECTION_INDEX = {"price": 93, "ma50": 100, "ma200": 95, "returns": {"3M": -5, "6M": 2, "1Y": 15}}
+# Below a flat 40-wk after a down year: Stage 1 base.
+STAGE1_INDEX = {"price": 90, "ma50": 95, "ma200": 97, "returns": {"3M": 1, "6M": -2, "1Y": -8}}
 DOWN_MARKET = {
     "^GSPC": {"price": 80, "ma50": 85, "ma200": 100, "returns": {"3M": -15, "6M": -20, "1Y": -25}},
     "^IXIC": {"price": 80, "ma50": 85, "ma200": 100, "returns": {"3M": -15, "6M": -20, "1Y": -25}},
@@ -85,7 +89,10 @@ class Golden(unittest.TestCase):
         self.assertEqual(r["thesis"]["label"], "At Risk")
         self.assertEqual(r["weekly"]["label"], "Stage 2 correction below 40-wk")
         self.assertEqual(r["market"]["weakest"], "^IXIC")
-        self.assertNotIn("no new buys", r["new_money"]["note"])  # Nasdaq is correcting, not Stage 4
+        self.assertEqual(r["market"]["regime"], "below40")
+        self.assertFalse(r["leader"])
+        self.assertIn("Nasdaq below its 40-wk MA, no new buys", r["new_money"]["note"])
+        self.assertIn("not a leader yet: RS -10pp", r["new_money"]["note"])
         self.assertNotIn("half size", r["new_money"]["note"])  # not a Buy, so no sizing advice
 
     def test_deterministic(self):
@@ -127,14 +134,45 @@ class Actions(unittest.TestCase):
         self.assertEqual(r["new_money"]["action"], "Buy on pullback")
         self.assertIn("$95.00", r["new_money"]["note"])
 
-    def test_leader_still_buyable_in_normal_correction(self):
-        # Index below its 40-wk but the 40-wk is still rising: Stage 2 correction, not Stage 4.
-        correction = {s: {"price": 93, "ma50": 100, "ma200": 95, "returns": {"3M": -5, "6M": 2, "1Y": 15}}
-                      for s in ("^GSPC", "^IXIC")}
-        r = run_one(LEADER, market=correction)
-        self.assertEqual(r["market"]["reads"]["^IXIC"]["label"], "Stage 2 correction below 40-wk")
-        self.assertEqual(r["new_money"]["action"], "Buy")
-        self.assertLess(r["timing"], run_one(LEADER)["timing"])  # weaker market still costs Timing points
+    def test_laggard_is_not_a_buy_even_with_a_strong_chart(self):
+        # Stage 2 uptrend, healthy market, Timing >= 70, but trailing the S&P by 6.5pp.
+        r = run_one(variant(returns={"3M": 0, "6M": 5, "1Y": 10}))
+        self.assertGreaterEqual(r["timing"], 70)
+        self.assertFalse(r["leader"])
+        self.assertEqual(r["new_money"]["action"], "Watchlist")
+        self.assertIn("not a leader yet", r["new_money"]["note"])
+
+    def test_no_new_buys_in_normal_correction(self):
+        # One index below a still-rising 40-wk: a correction, not Stage 4, but buys still wait.
+        market = copy.deepcopy(HEALTHY_MARKET)
+        market["^IXIC"] = CORRECTION_INDEX
+        r = run_one(LEADER, market=market)
+        self.assertEqual(r["market"]["regime"], "below40")
+        self.assertTrue(r["leader"])
+        self.assertLessEqual(r["timing"], 69)
+        self.assertEqual(r["new_money"]["action"], "Watchlist")
+        self.assertIn("Nasdaq below its 40-wk MA, no new buys", r["new_money"]["note"])
+
+    def test_stage1_market_allows_starter_buys_in_leaders(self):
+        r = run_one(LEADER, market={"^GSPC": STAGE1_INDEX, "^IXIC": STAGE1_INDEX})
+        self.assertEqual(r["market"]["regime"], "stage1")
+        self.assertEqual(r["new_money"]["action"], "Buy (starter)")
+        self.assertIn("S&P 500 and Nasdaq closes a week above", r["new_money"]["note"])
+
+    def test_stage1_market_with_one_index_still_correcting_blocks_buys(self):
+        r = run_one(LEADER, market={"^GSPC": STAGE1_INDEX, "^IXIC": CORRECTION_INDEX})
+        self.assertEqual(r["market"]["regime"], "below40")
+        self.assertEqual(r["new_money"]["action"], "Watchlist")
+
+    def test_stage1_market_does_not_help_laggards(self):
+        # Same Stage 2 chart as LEADER, but only +8.7pp ahead of the S&P (needs +10).
+        r = run_one(variant(returns={"3M": -2, "6M": 8, "1Y": 15}),
+                    market={"^GSPC": STAGE1_INDEX, "^IXIC": STAGE1_INDEX})
+        self.assertEqual(r["weekly"]["stage"], 2)
+        self.assertFalse(r["leader"])
+        self.assertIn("not a leader yet: RS +9pp", r["new_money"]["note"])
+        self.assertEqual(r["new_money"]["action"], "Watchlist")
+        self.assertIn("starter buys in leaders only", r["new_money"]["note"])
 
     def test_downtrend_market_caps_timing_and_blocks_buys(self):
         r = run_one(LEADER, market=DOWN_MARKET)
@@ -229,7 +267,7 @@ class ETF(unittest.TestCase):
 
     def test_equity_etf_buy(self):
         etf = {"ticker": "XYZ", "type": "etf", "price": 100, "ma50": 95, "ma200": 80, "year_high": 102,
-               "returns": {"3M": 12, "6M": 20, "1Y": 35}}
+               "returns": {"3M": 12, "6M": 20, "1Y": 40}}
         self.assertEqual(run_one(etf)["new_money"]["action"], "Buy")
 
 
