@@ -30,7 +30,7 @@ def main(path):
         ma40_prev = sum(c[i - 49:i - 9]) / 40
         st = score.weekly_stage(p, ma10, ma40, {"6M": (p / c[i - 26] - 1) * 100,
                                                 "1Y": (p / c[i - 52] - 1) * 100})
-        regime, _ = score.market_regime({"idx": st})
+        regime = score.market_regime({"idx": st})[0]
         fwd = f"{(c[i + 13] / p - 1) * 100:+6.1f}%" if i + 13 < len(c) else "    n/a"
         dd = f"{(min(c[i + 1:i + 27]) / p - 1) * 100:+7.1f}%" if i + 26 < len(c) else "     n/a"
         print(f"{d[i]:10} {p:8.0f} {ma10:8.0f} {ma40:8.0f} {(ma40 / ma40_prev - 1) * 100:+7.1f}% "

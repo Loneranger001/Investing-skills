@@ -23,8 +23,8 @@ IBD's daily-chart sell rules (8% stop-loss, distribution days, RS dips) are deli
 good positions. Holder exits come from a Broken thesis or a weekly Stage 4 (price below a
 falling 40-wk MA). New buys need a **leader** (Quality ≥ 70, thesis Intact, Stage 2,
 beating the S&P 500 by ≥ 10pp) and pause while either index is below its 40-wk MA,
-except half-size starter buys in leaders once both indexes are back above a 40-wk MA
-that is still falling (the market repairing after a decline).
+except half-size starter buys in leaders once both indexes close at least 2% above a
+40-wk MA that is still falling (the market repairing after a decline).
 
 **All arithmetic happens in `scripts/score.py`.** Your job is to gather inputs exactly as
 specified, make four categorical judgments, run the script, and write the synopsis. Never

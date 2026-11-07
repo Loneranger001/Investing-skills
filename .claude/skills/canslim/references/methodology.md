@@ -157,37 +157,56 @@ non-equity ETFs also skip 4.
 
 ## Market gate
 
-Over both indexes (`market_regime` in `score.py`):
+Over both indexes (`market_regime` in `score.py`). "Confirmed above" means a weekly close
+at least **2% above** the 40-wk MA (`CONFIRM_PCT`).
 
 | Regime | Condition | New buys | Timing cap |
 |---|---|---|---|
-| ok | both indexes above a flat or rising 40-wk MA | normal rules | — |
-| repair | both above their 40-wk, but at least one 40-wk is still falling | **starter (half-size) buys in leaders only** | 69 |
-| below40 | any index below its 40-wk otherwise: under a rising 40-wk (correction) or a flat one | none | 69 |
+| ok | both indexes confirmed above a flat or rising 40-wk | normal rules | — |
+| repair | both confirmed above, but at least one 40-wk is still falling | **starter (half-size) buys in leaders only** | 69 |
+| below40 | any index below its 40-wk, or less than 2% above it | none | 69 |
 | stage4 | any index below a falling 40-wk | none | 49 |
 
-**Why "repair" and not "Stage 1 below the 40-wk".** A Stage 1 base can't be identified
-reliably in real time. "Below a flat 40-wk after a down year" looks like one, but on the
-S&P 500 in 2022 that state was the rollover *into* the bear market: Apr 29 to May 27, with
-the index at fresh 52-wk lows on 4 of those 5 weeks, then another −13% to the October low.
-An earlier version of this skill allowed starter buys there. The actual bottom formed
-while the lagging 40-wk was still falling, so the first usable "buy cheap" signal was the
-index **reclaiming** that falling line: Jan 13 2023 at 3,999, ~12% above the low and
-about 4% below the level where the 40-wk flattened (Apr 28 2023, 4,169).
-`scripts/backtest_market.py` replays every week; `test_score.MarketHistory` locks these
-weeks in.
+The market gate never applies to holders.
 
-Known misses on the same data: the Mar 25 to Apr 1 2022 bear-market rally reclaimed a
-still-rising 40-wk and read "ok" (the index then fell ~20%), and Dec 2 2022 read "repair"
-for one week before slipping back. Any moving-average gate has these; the leader test and
-starter sizing limit the damage. The weekly label for a flat 40-wk is also unreliable on
-the Stage 1 vs Stage 3 question (Apr to Jun 2023 reads "Stage 3 top" at the start of a new
-advance). It doesn't change the gate.
+### Why it's built this way: S&P 500 replay, three bears
+
+`scripts/backtest_market.py` replays every week of `fixtures/` (weekly closes, from FMP):
+
+| Bear | Gate shut | Low (weekly close) | Drop avoided | First re-entry | Full buys | False re-entries during the bear |
+|---|---|---|---|---|---|---|
+| 2007–09 | Nov 9 2007 @1,454 | 683, Mar 2009 | −53% | starter Jun 5 2009 @940 (+38% off low) | Oct 2 2009 @1,025 | none |
+| 2020 | Feb 28 2020 @2,954 | 2,305, Mar 2020 | −22% | starter Jun 5 2020 @3,194 (+39%) | Jun 19 2020 @3,098 | none |
+| 2022 | Jan 21 2022 @4,398 | 3,583, Oct 2022 | −19% | starter Jan 27 2023 @4,071 (+14%) | Apr 28 2023 @4,169 | none |
+
+Three findings shaped the rules:
+
+1. **Stage 1 can't be identified in real time.** "Below a flat 40-wk after a down year"
+   looks like a base, but in Jan 2008 and Apr–May 2022 it was the rollover into the bear
+   market: the index was at fresh 52-wk lows, and the S&P then fell another 13% (2022) and
+   more than 50% (2008–09). An earlier version of this
+   skill allowed starter buys there. Real bottoms formed while the lagging 40-wk was still
+   falling, so the first usable signal is the index *reclaiming* that falling line.
+2. **Marginal reclaims fail.** Without the 2% margin the gate reopened five times during
+   these bears: Dec 7 2007 (then −14%), May 16 2008 (0.0% above the line, then −39%),
+   Feb 4, Mar 25 and Apr 1 2022 (each then about −20%). All five were within 1.2% of the
+   40-wk. The 2% margin removes all five and delays the real re-entries by 0–5%. Any margin
+   from 1.5% to 3% removes the same five and gives the same re-entry weeks, so 2% isn't a
+   fitted knife-edge. In bull
+   phases it blocked 14 weeks that would otherwise have been open; the index's next
+   13 weeks after those averaged +1.4%, roughly break-even, so little is lost.
+3. **The gate doesn't call tops.** It was open right up to the Feb 2020 crash (index ~10%
+   above a rising 40-wk) and into mid-Jan 2022. It shuts after the first decisive break
+   below the 40-wk. Protection at the top comes from each stock's own weekly stage and the
+   holder rules, not from the market gate.
+
+The costs are deliberate: re-entry comes 14–39% off the low, in exchange for not buying
+bear-market rallies. In a V-shaped recovery (2009, 2020) that's a lot of the first leg.
+Labels on a flat 40-wk are also unreliable on Stage 1 vs Stage 3 (May–Jul 2020 and
+Apr–Jun 2023 read "Stage 3 top" at the start of new advances); this doesn't change the gate.
 
 A Stage 1 *stock* is never a buy (it's Watchlist until it reaches Stage 2): its base can
 last years or roll over, and its RS is weak by definition.
-
-The market gate never applies to holders.
 
 ## Caps and missing data
 
@@ -297,10 +316,12 @@ sourced to `web_sourced`, and the confidence level will reflect it.
 
 - `python3 -m unittest -v test_score.py` (in `scripts/`) covers band edges, losses,
   negative equity, splits, the stage table, caps, thesis rules, the actions, a golden
-  NVDA snapshot, and the market gate on real 2022–23 S&P 500 weeks.
+  NVDA snapshot, and the market gate on real S&P 500 weeks from 2007–10, 2018–21, 2021–23.
 - `python3 backtest_market.py [weekly.csv]` replays the market gate week by week with
-  forward returns. Run it on any change to `weekly_stage` or `market_regime`; add more
-  history (2000–02, 2008–09, 2018, 2020) to `fixtures/` to widen the test.
+  forward returns. Run it on any change to `weekly_stage` or `market_regime`.
+  `test_score.MarketHistory` pins key weeks from all three fixtures and asserts the gate
+  stayed shut from the first close to the low in each bear. Not yet covered: 2000–02 (a
+  long grind with several bear rallies) and the Nasdaq, which the live gate also uses.
 - Repeat-run check after any change to `SKILL.md`: run 3–4 tickers five times on the same
   day and diff the factor lines. Scores can only vary through inputs or the four
   judgments, so any variance points at a data-gathering step that needs tightening.

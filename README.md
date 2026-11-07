@@ -22,8 +22,9 @@ weekly chart. For a US stock or ETF it returns:
 IBD's daily sell rules (8% stop, distribution days) are deliberately left out. Holders exit
 on a broken thesis or a weekly Stage 4, not on daily noise. New buys are for **leaders**
 only (Quality ≥ 70, thesis Intact, Stage 2, beating the S&P 500 by ≥ 10pp) and pause
-while either index is below its 40-wk MA, except half-size starter buys in leaders once
-both indexes are back above a 40-wk that is still falling (repairing after a decline).
+while either index is below its 40-wk MA (or less than 2% above it), except half-size
+starter buys in leaders once both are confirmed above a 40-wk that is still falling. The
+gate is backtested on the 2007–09, 2020 and 2022 bear markets.
 
 ```
 /canslim NVDA

@@ -17,7 +17,7 @@ CORRECTION_INDEX = {"price": 93, "ma50": 100, "ma200": 95, "returns": {"3M": -5,
 # Below a flat 40-wk after a down year: looks like a base, but can be a rollover.
 FLAT_BELOW_INDEX = {"price": 90, "ma50": 95, "ma200": 97, "returns": {"3M": 1, "6M": -2, "1Y": -8}}
 # Back above a 40-wk that is still falling: repairing after a decline.
-REPAIR_INDEX = {"price": 100, "ma50": 96, "ma200": 98, "returns": {"3M": 8, "6M": 5, "1Y": -15}}
+REPAIR_INDEX = {"price": 100, "ma50": 96, "ma200": 97, "returns": {"3M": 8, "6M": 5, "1Y": -15}}
 DOWN_MARKET = {
     "^GSPC": {"price": 80, "ma50": 85, "ma200": 100, "returns": {"3M": -15, "6M": -20, "1Y": -25}},
     "^IXIC": {"price": 80, "ma50": 85, "ma200": 100, "returns": {"3M": -15, "6M": -20, "1Y": -25}},
@@ -279,38 +279,54 @@ class ETF(unittest.TestCase):
 
 
 class MarketHistory(unittest.TestCase):
-    """Real S&P 500 weeks (fixtures/spx_weekly_2021_2023.csv; replay with backtest_market.py)."""
+    """The market gate on real S&P 500 weeks (fixtures/*.csv; replay with backtest_market.py)."""
 
-    WEEKS = {
-        # Rollover into the 2022 bear: fresh 52-wk lows, then another -13% to the Oct low.
-        "2022-04-29": ({"price": 4131.93, "ma50": 4375.44, "ma200": 4493.29,
-                        "returns": {"6M": -10.28, "1Y": -1.18}}, "below40"),
-        "2022-05-20": ({"price": 3901.36, "ma50": 4288.52, "ma200": 4462.01,
-                        "returns": {"6M": -16.96, "1Y": -6.12}}, "below40"),
-        # Index reclaims a still-falling 40-wk, ~12% off the Oct 2022 low.
-        "2023-01-13": ({"price": 3999.09, "ma50": 3942.13, "ma200": 3955.06,
-                        "returns": {"6M": 3.52, "1Y": -14.24}}, "repair"),
-        # 40-wk has flattened with the index above it.
-        "2023-04-28": ({"price": 4169.48, "ma50": 4041.99, "ma200": 3970.58,
-                        "returns": {"6M": 6.88, "1Y": 0.91}}, "ok"),
-    }
+    FIX = {"2008": "spx_weekly_2006_2010.csv", "2020": "spx_weekly_2018_2021.csv",
+           "2022": "spx_weekly_2021_2023.csv"}
 
-    def test_gate_on_real_weeks(self):
-        for week, (idx, expected) in self.WEEKS.items():
-            st = score.weekly_stage(idx["price"], idx["ma50"], idx["ma200"], idx["returns"])
-            self.assertEqual(score.market_regime({"^GSPC": st})[0], expected, week)
-
-    def test_2022_rollover_never_opened_the_gate(self):
+    @classmethod
+    def load(cls, key):
         import csv
-        rows = list(csv.DictReader(open(os.path.join(HERE, "fixtures", "spx_weekly_2021_2023.csv"))))
-        c = [float(r["close"]) for r in rows]
-        dates = [r["date"] for r in rows]
-        for i in range(52, len(c)):
-            if not ("2022-04-15" <= dates[i] <= "2022-11-30"):
-                continue
-            st = score.weekly_stage(c[i], sum(c[i - 9:i + 1]) / 10, sum(c[i - 39:i + 1]) / 40,
-                                    {"6M": (c[i] / c[i - 26] - 1) * 100, "1Y": (c[i] / c[i - 52] - 1) * 100})
-            self.assertIn(score.market_regime({"^GSPC": st})[0], ("below40", "stage4"), dates[i])
+        with open(os.path.join(HERE, "fixtures", cls.FIX[key])) as f:
+            rows = list(csv.DictReader(f))
+        return [r["date"] for r in rows], [float(r["close"]) for r in rows]
+
+    @staticmethod
+    def regime(c, i):
+        st = score.weekly_stage(c[i], sum(c[i - 9:i + 1]) / 10, sum(c[i - 39:i + 1]) / 40,
+                                {"6M": (c[i] / c[i - 26] - 1) * 100, "1Y": (c[i] / c[i - 52] - 1) * 100})
+        return score.market_regime({"^GSPC": st})[0]
+
+    def test_key_weeks(self):
+        expected = {
+            "2008": {"2008-01-11": "below40",   # rollover below a flat 40-wk (old rule: Stage 1 starter)
+                     "2008-05-16": "below40",   # bear rally, 0.0% above the 40-wk: unconfirmed (then -39%)
+                     "2009-06-05": "repair",    # confirmed above a still-falling 40-wk, +38% off the low
+                     "2009-10-09": "ok"},
+            "2020": {"2020-02-28": "below40",   # first week of the crash
+                     "2020-04-03": "below40",   # below a flat 40-wk (old rule: Stage 1 starter)
+                     "2020-06-05": "repair",
+                     "2020-06-19": "ok"},
+            "2022": {"2022-04-29": "below40",   # rollover (old rule: Stage 1 starter, then -13%)
+                     "2022-05-20": "below40",
+                     "2022-12-02": "below40",   # +0.9% above the 40-wk: unconfirmed
+                     "2023-01-13": "below40",   # +1.1%: unconfirmed
+                     "2023-01-27": "repair",    # +3.3%: confirmed, ~14% off the Oct low
+                     "2023-04-28": "ok"},
+        }
+        for key, weeks in expected.items():
+            d, c = self.load(key)
+            for week, want in weeks.items():
+                self.assertEqual(self.regime(c, d.index(week)), want, f"{key} {week}")
+
+    def test_gate_stays_shut_from_first_close_to_the_low(self):
+        # (first week the gate closed, weekly-close low) for each bear
+        bears = {"2008": ("2007-11-09", "2009-03-06"), "2020": ("2020-02-28", "2020-03-20"),
+                 "2022": ("2022-01-21", "2022-10-14")}
+        for key, (shut, low) in bears.items():
+            d, c = self.load(key)
+            for i in range(d.index(shut), d.index(low) + 1):
+                self.assertIn(self.regime(c, i), ("below40", "stage4"), f"{key} {d[i]}")
 
 
 if __name__ == "__main__":

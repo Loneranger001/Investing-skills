@@ -49,6 +49,7 @@ QUALITY_FLOOR = 55    # below this: Avoid for new money
 TIMING_BUY = 70       # Timing needed for a Buy
 EXTENDED_PCT = 20     # % above the 10-wk MA that counts as extended
 LEADER_RS_PP = 10     # weighted 3/6/12-mo return must beat the S&P 500 by this many pp (L = 70)
+CONFIRM_PCT = 2.0     # an index counts as above its 40-wk only once it closes this % above it
 EARNINGS_WINDOW = 14  # days; flag entries this close to a report
 INDEX_NAMES = {"^GSPC": "S&P 500", "^IXIC": "Nasdaq", "^DJI": "Dow", "^RUT": "Russell 2000"}
 
@@ -172,6 +173,7 @@ def weekly_stage(price, ma50, ma200, returns):
             s, st, lab = (12 if golden else 5), 4, "Stage 4 downtrend"
     return {
         "score": float(s), "stage": st, "label": lab, "slope_40w": slope,
+        "ma40": ma200, "pct_vs_40": (price / ma200 - 1) * 100,
         "slope_approx": approx, "above10": above10, "above40": above40,
     }
 
@@ -413,32 +415,44 @@ def market_read(market):
 
 
 def market_regime(reads):
-    """Gate for new buys, over both indexes.
+    """Gate for new buys, over both indexes. Returns (regime, symbols, note).
 
     stage4  - any index below a falling 40-wk: no new buys
-    below40 - any index below its 40-wk otherwise, flat MA included: no new buys
-    repair  - every index above its 40-wk, but at least one 40-wk is still falling (the
-              index has reclaimed the line after a decline): starter buys in leaders only
-    ok      - every index above a flat or rising 40-wk: normal rules
+    below40 - any index below its 40-wk, or less than CONFIRM_PCT above it: no new buys
+    repair  - every index confirmed above its 40-wk, but at least one 40-wk is still
+              falling (reclaimed after a decline): starter buys in leaders only
+    ok      - every index confirmed above a flat or rising 40-wk: normal rules
 
-    "Below a flat 40-wk" is deliberately not treated as a Stage 1 base. On the S&P 500 in
-    2022 that state was the rollover into the bear market (Apr 29 - May 27, index at
-    fresh 52-wk lows, another -13% to the October low). The real bottom formed while
-    the lagging 40-wk was still falling, and the first usable signal was the index
-    reclaiming it (Jan 13 2023, ~12% off the low). See backtest_market.py.
+    Two lessons from replaying 2007-10, 2018-21 and 2021-23 S&P 500 weeks
+    (backtest_market.py, fixtures/):
+    - "Below a flat 40-wk" is not a Stage 1 base. In Jan 2008 and Apr-May 2022 it was the
+      rollover into the bear market. Real bottoms formed while the 40-wk was still falling.
+    - Every false re-entry during those bears (Dec 2007, May 2008, Feb/Mar/Apr 2022) was
+      a close within ~1.2% of the 40-wk. Requiring a 2% margin removed all five and
+      delayed the real re-entries by 0-5%. Any margin from 1.5% to 3% removes the same
+      five and gives the same re-entry weeks, so 2% is not a fitted knife-edge.
     """
     if not reads:
-        return None, []
+        return None, [], ""
     s4 = [k for k, v in reads.items() if v["stage"] == 4]
     if s4:
-        return "stage4", s4
-    below = [k for k, v in reads.items() if not v["above40"]]
+        return "stage4", s4, f"{index_names(s4)} in a Stage 4 downtrend, no new buys"
+    below = [k for k, v in reads.items() if v["pct_vs_40"] < CONFIRM_PCT]
     if below:
-        return "below40", below
+        parts = []
+        for k in below:
+            v, nm = reads[k], INDEX_NAMES.get(k, k)
+            if v["above40"]:
+                parts.append(f"{nm} only {v['pct_vs_40']:+.1f}% above its 40-wk MA, not confirmed until a "
+                             f"weekly close above {v['ma40'] * (1 + CONFIRM_PCT / 100):,.0f}")
+            else:
+                parts.append(f"{nm} below its 40-wk MA")
+        return "below40", below, "; ".join(parts) + ", no new buys"
     repairing = [k for k, v in reads.items() if v["slope_40w"] == "falling"]
     if repairing:
-        return "repair", repairing
-    return "ok", []
+        return ("repair", repairing,
+                "market repairing (back above a still-falling 40-wk), starter buys in leaders only")
+    return "ok", [], ""
 
 
 def index_names(syms):
@@ -516,7 +530,7 @@ def is_leader(is_etf, q, thesis, stage, rs_delta, rs_applies):
 
 
 def new_money(is_etf, q, thesis, timing, stage, ext, rs_delta, rs_applies, regime, regime_syms,
-              ma10, ma40, earn_days):
+              regime_note, ma10, ma40, earn_days):
     if not is_etf:
         if thesis == "Broken":
             return "Avoid", "thesis Broken"
@@ -557,13 +571,8 @@ def new_money(is_etf, q, thesis, timing, stage, ext, rs_delta, rs_applies, regim
             reasons.append(f"{stage['label']}, wait for Stage 2")
     if rs_applies and rs_delta is not None and rs_delta < LEADER_RS_PP:
         reasons.append(f"not a leader yet: RS {rs_delta:+.0f}pp vs the S&P 500 (needs +{LEADER_RS_PP})")
-    if regime == "stage4":
-        reasons.append(f"{names} in a Stage 4 downtrend, no new buys")
-    elif regime == "below40":
-        its = "its 40-wk MA" if len(regime_syms) == 1 else "their 40-wk MAs"
-        reasons.append(f"{names} below {its}, no new buys until it recovers")
-    elif regime == "repair":
-        reasons.append("market repairing (back above a still-falling 40-wk), starter buys in leaders only")
+    if regime_note:
+        reasons.append(regime_note)
     if not reasons:
         reasons.append("wait for a new base or breakout")
     if soon:
@@ -620,7 +629,7 @@ def score_ticker(t, market, as_of):
     timing = to99(weighted(tf, TIMING_WEIGHTS))
     # Market gate: no new buys while either index is below its 40-wk MA; starter buys in
     # leaders once both are back above it but a 40-wk is still falling (see market_regime).
-    regime, regime_syms = market_regime(mreads)
+    regime, regime_syms, regime_note = market_regime(mreads)
     if regime is None:
         flags.append("market data missing, market rule not applied")
     if timing is not None:
@@ -670,7 +679,7 @@ def score_ticker(t, market, as_of):
     rs_applies = not (is_etf and etf_class in ("bond", "commodity", "currency", "other"))
     leader = is_leader(is_etf, quality, tl, stage, rs_delta, rs_applies)
     nm_action, nm_note = new_money(is_etf, quality, tl, timing, stage, ext, rs_delta, rs_applies,
-                                   regime, regime_syms, ma50, ma200, earn_days)
+                                   regime, regime_syms, regime_note, ma50, ma200, earn_days)
     h_action, h_note = holder(is_etf, quality, tl, stage, ma200)
 
     # --- presentation
