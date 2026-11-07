@@ -1,204 +1,340 @@
-# CAN SLIM Methodology — Thresholds, Scoring, and Data Map
+# Methodology: 2–5 year CAN SLIM with weekly-chart timing
 
-This rubric approximates IBD's ratings from public data. Apply it mechanically so the same
-inputs always produce the same score.
+`scripts/score.py` is the source of truth; this file documents it. If you change a
+breakpoint, change it in both places and update the golden test in
+`scripts/test_score.py` on purpose.
 
-## Factor rubrics (stocks)
+Every curve below is **piecewise-linear**: the score is interpolated between the listed
+points and clamped at the ends. Notation `x→score`. Composites are weighted averages over
+the factors that have data (missing ones are re-weighted away), then `×0.99`, rounded
+half-up to an integer 0–99.
 
-Each factor is scored 0–100, then combined with the weights in the Scoring section.
+## Why it differs from stock IBD
 
-### C — Current quarterly earnings
-
-Compare the most recent reported quarter to the same quarter a year ago (YoY, not
-sequential). Use diluted EPS; if EPS is negative or turning positive, judge on revenue
-growth and trajectory toward profitability.
-
-| Evidence | Score |
+| IBD CAN SLIM (months-long trades) | This skill (2–5 yr positions, weekly chart) |
 |---|---|
-| EPS growth ≥40% YoY **and** accelerating vs. prior quarter's YoY rate, sales ≥20% | 90–100 |
-| EPS growth ≥25% YoY, sales ≥15% | 75–89 |
-| EPS growth 10–25% YoY | 50–74 |
-| EPS growth 0–10%, or positive EPS but sales shrinking | 25–49 |
-| EPS declining YoY or losses widening | 0–24 |
+| One composite score | **Quality** (own it for years?) and **Timing** (enter now?) kept separate |
+| 50-day / 200-day MAs, daily signals | 10-wk / 40-wk MAs and weekly stage (`priceAvg50` ≈ 10-wk, `priceAvg200` ≈ 40-wk) |
+| 8% stop, distribution days, RS dips as sells | Holder exits only on a Broken thesis or weekly Stage 4 |
+| P/E ignored | Trailing-PEG penalty: over 2–5 years, the price paid matters |
+| Market direction gates everything | Market gates **new buys only**; it never forces a long-term holder out |
+| Float size, daily volume | Dropped: noise at this horizon |
 
-Acceleration (each of the last 3 quarters' YoY growth rate higher than the one before)
-adds up to +10 (cap 100); deceleration across 3 quarters subtracts up to −10.
+## Quality (stocks only)
 
-### A — Annual earnings growth
+| Factor | Weight | What it measures |
+|---|---|---|
+| A: Annual growth | 30% | 3-yr EPS and revenue CAGR, consistency |
+| C: Current quarters | 20% | Latest quarter YoY EPS and revenue, acceleration |
+| R: Returns & margins | 15% | ROE (ROIC fallback), 3-yr operating-margin trend |
+| S: Shares & balance sheet | 15% | Diluted share-count trend, net debt/EBITDA, FCF sign |
+| N: New things | 10% | Catalyst: product, market, management, guidance |
+| I: Institutional | 10% | 13F sponsorship trend |
 
-Use the last 3 fiscal years of diluted EPS plus TTM ROE.
+### A: Annual growth
 
-| Evidence | Score |
+From `annual[]` (4 fiscal years → 3-yr CAGR).
+
+- EPS CAGR % → `-10→0, 0→20, 10→45, 15→60, 25→80, 40→95, 60→100`, minus **8 per down
+  year** in the EPS series.
+- Revenue CAGR % → `-5→0, 0→15, 5→35, 10→55, 20→80, 30→95, 50→100`.
+- A = 0.6·EPS + 0.4·revenue.
+- Base-year EPS ≤ 0 but latest > 0 (turned profitable): A = 0.8·revenue score.
+- Latest EPS ≤ 0: A = min(0.5·revenue score, 40).
+- Fewer than 4 years (recent IPO): CAGR over what exists, flagged.
+
+### C: Current quarters
+
+From `quarters[]` (newest first, each with its year-ago quarter).
+
+- **GAAP distortion check:** if latest-quarter EPS growth and operating-income growth
+  differ by more than 25pp, score on operating-income growth for all quarters (flagged).
+  Catches investment gains, impairments, and one-time tax items.
+- EPS YoY % → `-20→0, 0→20, 10→40, 25→65, 40→85, 70→100`.
+- Revenue YoY % → `-10→0, 0→20, 10→45, 20→70, 30→90, 50→100`.
+- C = 0.65·EPS + 0.35·revenue.
+- Acceleration: 3 quarters strictly rising → +8, strictly falling → −8; with only 2
+  quarters, ±4. **Deceleration counts only when the latest rate is below 40%** (100% →
+  70% is still elite growth for a long-term holder).
+- Year-ago quarter was a loss (growth undefined) → EPS part = 70 (turnaround), flagged.
+- Latest quarter is a loss → EPS part = 15 if narrowing, else 0; C = 0.4·EPS +
+  0.6·revenue.
+
+### R: Returns & margins
+
+- ROE used when 0 < ROE ≤ 150%: ROE % → `-10→0, 0→10, 10→40, 17→70, 25→85, 40→100`.
+  Otherwise (negative or tiny equity from buybacks) ROIC % →
+  `-10→0, 0→10, 8→40, 12→60, 17→75, 25→90, 40→100`, flagged.
+- Operating-margin change, oldest → newest FY, in pp → `-10→0, -3→30, 0→55, 3→75, 10→100`.
+- R = 0.6·returns + 0.4·margin.
+
+### S: Shares & balance sheet
+
+- Diluted shares, %/yr (CAGR) → `-3→100, -1→85, 0→70, 1→60, 3→35, 8→10, 15→0`. A
+  year-over-year jump >50% (or drop >33%) is treated as a possible unadjusted split: not
+  scored, flagged.
+- Net debt/EBITDA → `-0.5→100, 0→95, 1→85, 2→65, 3→40, 5→10`. Not scored if latest
+  EBITDA ≤ 0.
+- S = mean of the two, −15 if FCF yield < 0.
+
+### N: New things and I: Institutional
+
+- N: `major` 90 · `ordinary` 50 · `stale` 20 · omitted → dropped.
+- I: trend `rising` 80 · `flat` 60 · `falling` 35, −20 if ownership < 20%. Trend unknown
+  but % known: % → `10→25, 30→40, 60→65, 80→70`. Both unknown → dropped.
+
+### Valuation check (2–5 yr specific)
+
+Trailing PEG = (price / sum of last 4 quarters' diluted EPS) / min(3-yr EPS CAGR, 50).
+Growth is capped at 50% because multi-hundred-percent CAGRs don't persist. Penalty on the
+Quality composite before normalizing: PEG `2→0, 3→−5, 4→−10`. Not assessed when TTM EPS
+≤ 0 or there's no positive growth (flagged). This is a check on overpaying, not a value
+screen: CAN SLIM leaders usually look expensive.
+
+## Timing (stocks and ETFs)
+
+| Factor | Weight |
 |---|---|
-| 3-yr EPS CAGR ≥25% with growth in each year, ROE ≥17% | 90–100 |
-| 3-yr EPS CAGR ≥25% but one down year, or CAGR 15–25% with ROE ≥17% | 70–89 |
-| 3-yr EPS CAGR 10–15%, or strong CAGR but ROE <17% | 50–69 |
-| Flat annual EPS (0–10% CAGR) | 25–49 |
-| Declining annual EPS or persistent losses | 0–24 |
+| W: Weekly stage | 40% |
+| L: Relative strength vs. S&P 500 | 30% |
+| E: Entry location | 15% |
+| M: Market (weaker of S&P 500 / Nasdaq, same stage table) | 15% |
 
-### N — New things / new highs
+### W: Weekly stage
 
-Two halves, averaged:
-- **Newness (news scan):** genuine new product, new market, new management, or upgraded
-  guidance within ~6 months → 80–100; ordinary news flow → 40–60; stale story or
-  deteriorating narrative → 0–30.
-- **New-high proximity:** within 5% of 52-week high → 100; within 15% → 75; within 25% →
-  50; 25–40% off → 25; >40% off → 0. (IBD buys strength near highs, not dips.)
-
-### S — Supply and demand
-
-- Share count flat or shrinking YoY (buybacks; compare `weightedAverageShsOutDil` across
-  annual statements) → start at 70; meaningful dilution (>3%/yr) → start at 30; heavy
-  dilution (>8%/yr) → start at 10.
-- Demand proxy from the quote: price rising recently (positive 1M change) on volume above
-  the 50-day average → +20; price falling on above-average volume (distribution) → −20.
-- Very large floats (>1B shares) dampen the CAN SLIM ideal slightly: −10. Cap 0–100.
-
-### L — Leader or laggard (Relative Strength)
-
-Use the `quote-change` endpoint (returns % change over standard periods) for the stock and
-for `^GSPC`, and compute an IBD-style weighted return that overweights the recent quarter:
+**40-wk MA slope**, from data already fetched. The change in a 200-day SMA over the last
+50 days equals (today's 50-day SMA − the 50-day SMA from 200 days ago) / 4, and that old
+50-day SMA is centred about 45 weeks back. So:
 
 ```
-RS = 0.4·(3M % change) + 0.3·(6M % change) + 0.3·(1Y % change)
-ΔRS = RS_stock − RS_index          (percentage points)
+P26 = price / (1 + 6M%)      P52 = price / (1 + 1Y%)
+P45 = exp( ln P26 + (19/26)·(ln P52 − ln P26) )       # log-interpolated
+slope = rising if ma50 > 1.02·P45, falling if ma50 < 0.98·P45, else flat
 ```
 
-| ΔRS (pp) | Score |
-|---|---|
-| ≥ +25 (strong leader) | 90–100 |
-| +10 to +25 | 70–89 |
-| 0 to +10 | 50–69 |
-| −10 to 0 | 25–49 |
-| < −10 (laggard) | 0–24 |
+Without 6M/1Y returns (IPO), slope = rising if ma50 > ma200, else falling (flagged).
+"Prior uptrend" = 1Y return > 0.
 
-This proxies IBD's RS Rating ≥80 rule: only scores ≥70 here correspond to "leader."
+| Price vs 40-wk | 40-wk slope | Other | Stage, label | Score |
+|---|---|---|---|---|
+| above | rising | 10-wk > 40-wk, above 10-wk | 2, uptrend | 92 |
+| above | rising | 10-wk > 40-wk, below 10-wk | 2, pullback below 10-wk | 72 |
+| above | rising | 10-wk < 40-wk, above 10-wk | 2, early (reclaimed 40-wk) | 75 |
+| above | rising | 10-wk < 40-wk, below 10-wk | 2, early, below 10-wk | 55 |
+| above | flat | prior uptrend | 3, top | 45 (+5 above 10-wk) |
+| above | flat | no prior uptrend | 1, base | 55 (+5) |
+| above | falling | | 1, repair | 45 (+5) |
+| below | rising | | 2, correction below 40-wk | 35 (+5) |
+| below | flat | prior uptrend | 3, breakdown | 25 (+5) |
+| below | flat | no prior uptrend | 1, base below 40-wk | 30 (+5) |
+| below | falling | | 4, downtrend | 5 (12 if 10-wk > 40-wk) |
 
-### I — Institutional sponsorship
+### L, E, M
 
-From 13F positions-summary (or web fallback): sponsorship present and holder count /
-institutional shares **increasing** over recent quarters → 70–100; present but flat →
-50–69; declining ownership → 20–49; negligible institutional ownership → 0–19.
-If only a point-in-time ownership % is available: >60% → 70, 30–60% → 55, <30% → 35.
+- **L:** `RS = 0.4·3M% + 0.3·6M% + 0.3·1Y%` for the stock and the benchmark (`^GSPC`, or
+  `benchmark_returns` for web-sourced ETFs); ΔRS in pp →
+  `-30→0, -10→25, 0→50, 10→70, 25→90, 40→100`. No 1Y return: both sides use
+  `(0.4·3M + 0.3·6M)/0.7`. Dropped for bond, commodity, currency, or other non-equity ETFs.
+- **E:** mean of (% above the 10-wk MA → `-15→20, -5→55, 0→80, 5→95, 10→90, 20→55,
+  30→20, 40→5`) and (% below the 52-wk high → `0→100, 5→95, 15→75, 25→50, 40→15, 60→0`).
+  Best entries are at or just above the 10-wk line near highs, not 30% extended.
+- **M:** the weaker index's W score.
 
-### M — Market direction
+## Leader
 
-Using `^GSPC` and `^IXIC` vs. their 50-day and 200-day moving averages. The
-`index-quote` endpoint returns `price`, `priceAvg50`, and `priceAvg200` directly — no
-history download or SMA computation needed:
+A stock is a **leader** only if all four hold:
 
-| Condition | State | Score |
+1. Quality ≥ 70 (worth owning for years),
+2. thesis Intact,
+3. its own weekly chart is in Stage 2 above the 40-wk MA,
+4. weighted RS beats the S&P 500 by ≥ +10pp (L ≥ 70).
+
+RS is only 30% of Timing, so without this explicit gate a stock trailing the market can
+still reach Timing 70 on trend and market strength alone. +10pp is looser than IBD's RS
+Rating ≥ 80 (a percentile rank against all stocks, which needs whole-market data this
+skill doesn't have). Raise `LEADER_RS_PP` in `score.py` to tighten it. ETFs skip 1–2;
+non-equity ETFs also skip 4.
+
+## Market gate
+
+Over both indexes (`market_regime` in `score.py`). "Confirmed above" means a weekly close
+at least **2% above** the 40-wk MA (`CONFIRM_PCT`).
+
+| Regime | Condition | New buys | Timing cap |
+|---|---|---|---|
+| ok | both indexes confirmed above a flat or rising 40-wk | normal rules | — |
+| repair | both confirmed above, but at least one 40-wk is still falling | **starter (half-size) buys in leaders only** | 69 |
+| below40 | any index below its 40-wk, or less than 2% above it | none | 69 |
+| stage4 | any index below a falling 40-wk | none | 49 |
+
+The market gate never applies to holders.
+
+### Why it's built this way: four bears, both indexes
+
+`scripts/backtest_market.py` replays every week of `fixtures/` (S&P 500 and Nasdaq weekly
+closes from FMP, gate on both as live). S&P 500 levels below.
+
+| Bear | Weeks open, peak → low | First re-entry after the low | Full buys |
+|---|---|---|---|
+| 2000–02 | 13, all Apr–Sep 2000 near the S&P's high; none after Sep 1 2000 | starter Apr 25 2003 @899 (+12% off the low) | Jun 20 2003 @996 |
+| 2007–09 | 0 | starter Jun 5 2009 @940 (+38%) | Oct 2 2009 @1,025 |
+| 2020 | 1 (Feb 21, the week before the crash) | starter Jun 5 2020 @3,194 (+39%) | Jun 19 2020 @3,098 |
+| 2022 | 0 | starter Feb 3 2023 @4,136 (+15%) | Apr 28 2023 @4,169 |
+
+Gate shut for good: Sep 8 2000, Nov 2 2007, Feb 28 2020, Jan 7 2022. From then to each
+low it never reopened: no buying of bear-market rallies in four bears.
+
+What shaped the rules:
+
+1. **Stage 1 can't be identified in real time.** "Below a flat 40-wk after a down year"
+   looks like a base, but in Jan 2008 and Apr–May 2022 it was the rollover into the bear
+   market: the index was at fresh 52-wk lows, and the S&P then fell another 13% (2022) and
+   more than 50% (2008–09). An earlier version of this skill allowed starter buys there.
+   Real bottoms formed while the lagging 40-wk was still falling, so the first usable
+   signal is the index *reclaiming* that falling line.
+2. **Marginal reclaims fail.** On the S&P alone and without the 2% margin, the gate
+   reopened five times during the bears: Dec 7 2007 (then −14%), May 16 2008 (0.0% above
+   the line, then −39%), Feb 4, Mar 25 and Apr 1 2022 (each then about −20%). All five were
+   within 1.2% of the 40-wk. The 2% margin removes all five and delays real re-entries by
+   0–5%. Any margin from 1.5% to 3% removes the same five and gives the same re-entry weeks,
+   so 2% isn't a fitted knife-edge.
+3. **Both indexes matter.** The Nasdaq blocked two S&P-only false buys: Mar 15 2002 (S&P
+   2.4% above a 40-wk the slope proxy misread as flat after the 9/11 crash, then −27%) and
+   Jan 7–14 2022 (then −21%). The cost was one week of delay in Feb 2023.
+4. **The gate doesn't call tops.** It was open the week before the Feb 2020 crash (index
+   ~10% above a rising 40-wk). In 2000 it stayed open on and off for six months after the
+   Nasdaq's March peak: the S&P chopped near its high above a rising 40-wk, and the Nasdaq
+   was so far above its own 40-wk after the 1999 run that even a 34% drop barely touched
+   it. Those 13 weeks were followed by S&P drawdowns of up to −19%. Protection at a slow
+   top comes from each stock's own weekly stage, the leader test, and the holder rules.
+   Tested and rejected: "no buys while either index is 20%+ below its 52-wk high". It
+   cut the 2000 leak from 13 to 5 weeks (the worst week stayed) but delayed the 2009
+   re-entry from 940 to 1,029.
+
+The costs are deliberate: re-entry comes 12–39% off the low, in exchange for not buying
+bear-market rallies. In a V-shaped recovery (2009, 2020) that's a lot of the first leg.
+Labels on a flat 40-wk are also unreliable on Stage 1 vs Stage 3 (May–Jul 2020 and
+Apr–Jun 2023 read "Stage 3 top" at the start of new advances); this doesn't change the gate.
+
+A Stage 1 *stock* is never a buy (it's Watchlist until it reaches Stage 2): its base can
+last years or roll over, and its RS is weak by definition.
+
+## Caps and missing data
+
+- Market caps as in the table above.
+- W or L missing → Timing capped at 69. A or C missing → Quality capped at 69.
+- Any other missing factor is dropped and the rest re-weighted.
+
+## Thesis (stocks only)
+
+| Question | Source | pass | watch | fail |
+|---|---|---|---|---|
+| **core**: is the revenue engine growing and profitable? | auto | otherwise | latest-quarter revenue growth < 5%, latest FY revenue down, or op margin −3 to −8pp over 3 yrs | revenue down YoY in both of the last 2 quarters, or op margin down >8pp |
+| **capital**: is spending disciplined? | judgment | stated, plausible payback | large unproven bet, big M&A | writedowns, value-destroying deals |
+| **balance**: share count and leverage | auto | otherwise | dilution >1%/yr, ND/EBITDA >2, negative FCF, or EBITDA ≤ 0 | dilution >5%/yr, or ND/EBITDA >4 with negative FCF |
+| **moat**: is the competitive position eroding? | judgment | no evidence of share or pricing loss | credible threat, no measurable damage yet | measurable share loss or impairing regulation |
+
+Label: **Broken** if core or moat fails. **At Risk** if capital or balance fails, core or
+moat is a watch, or there are ≥2 watches in total. Otherwise **Intact**. Two or more
+unknown answers → "(low confidence)". Core and moat weigh most because a company survives
+a bad capital cycle far more often than a shrinking core or a lost moat.
+
+## Actions
+
+**New money** (first match wins):
+
+1. Thesis Broken, or Quality < 55 → **Avoid**. Weekly Stage 4 → **Avoid**.
+2. Leader, regime ok or repair, and >20% above the 10-wk → **Buy on pullback** (level:
+   the 10-wk MA). Checked first, because a strong trend and RS can lift Timing past 70
+   even when the stock is extended.
+3. Leader, regime repair → **Buy (starter)**: half size; add the rest once the falling
+   40-wk flattens or turns up (regime ok).
+4. Leader, regime ok, Timing ≥ 70 → **Buy**.
+5. Anything else → **Watchlist**, with every reason that applies: Quality under 70, thesis
+   At Risk, the weekly level to reclaim (40-wk, else 10-wk), not a leader (RS vs. the
+   +10pp bar), the market gate.
+
+Earnings within 14 days: a Buy gets "start half size or wait for the report", a starter
+gets "consider waiting for the report", and a Watchlist gets the date.
+
+**Holder:**
+
+1. Thesis Broken → **Exit**.
+2. Weekly Stage 4 → **Exit** if the thesis is At Risk; otherwise **Reduce** (rebuild on a
+   weekly close back above the 40-wk).
+3. Thesis At Risk, price below the 40-wk MA, or Quality < 55 → **Hold, re-check**.
+4. Otherwise → **Hold**. The first warning is a weekly close below the 40-wk MA; the exit
+   is the 40-wk turning down.
+
+## Confidence
+
+The count excludes N and I (always web-sourced on this plan). Any of A, C, W, L missing
+(W, L for ETFs), or ≥3 other factors web-sourced or missing → **Low**. One or two →
+**Medium**. None → **High**.
+
+## Edge cases
+
+- **Recent IPOs:** fewer than 4 annual statements and no 1Y return. Handled (CAGR over
+  available years, RS from 3M/6M, slope from the MA cross), all flagged.
+- **Foreign filers and ADRs:** many report semiannually (20-F/6-K), so quarterly YoY may
+  not exist. Fill `quarters` with half-year periods if that's what's reported, and say so.
+- **REITs, banks, insurers:** EPS and operating income are poor measures (use FFO for
+  REITs). Score as normal but say in the synopsis that Quality is less meaningful.
+- **Pre-revenue companies:** set `thesis.core` manually from commercial traction and cash
+  runway; A and C will be low by construction.
+- **Leveraged ETFs:** flagged. RS and drawdowns are amplified, and they decay in choppy
+  markets: not a 2–5 yr holding.
+- **Splits:** FMP statements are normally split-adjusted (verified on NVDA's 2024 10:1).
+  The S-factor split guard catches the cases where they aren't.
+
+## Data map and FMP plan behaviour
+
+Verified 2026-11-07 on the user's plan:
+
+- **The gate is `limit > 5`, not the endpoint.** Quarterly `income-statement` works at
+  limit 5 and is denied at 8. `earnings-company` works at 5 and is denied at 10. Paging
+  (`page`) is ignored, so use the `period: "Q<n>"` filter to reach older quarters (it
+  returns the same fiscal quarter across years).
+- **ETF symbols are blocked** on `quote` and `quote-change` regardless of limit. Indexes
+  (`^GSPC`, `^IXIC`) work on `index-quote` and `quote-change`.
+- **`quote` has no `avgVolume` or `sharesOutstanding`**; use the statements for share
+  counts.
+- **Trap in `historical-price-eod-full`:** its `change`/`changePercent` are close − open
+  (intraday), not day-over-day. Example: ^IXIC on 2026-11-06 shows −0.09% but closed
+  +1.09%. If you ever compute from EOD history, use consecutive closes.
+- **GAAP vs adjusted:** FMP statements are GAAP; `earnings-company` `epsActual` is
+  adjusted. Don't mix them. Example: NVDA Q2 FY27 GAAP diluted $2.46 vs adjusted $2.22,
+  the gap being mostly a $7.8B equity-investment gain.
+
+| Need | Primary | Fallback |
 |---|---|---|
-| Both indexes above both MAs, 50d > 200d | Confirmed uptrend | 85–100 |
-| Above 200d but chopping around 50d | Uptrend under pressure | 55–70 |
-| Below 50d, testing 200d | Correction risk | 30–50 |
-| Both below 200d, 50d < 200d | Downtrend | 0–25 |
+| Price, 52-wk range, 10/40-wk MA | `quote` (`quote`) | web: stockanalysis.com |
+| Stock vs ETF, sector | `company` (`profile-symbol`) | web |
+| 3M/6M/1Y returns | `quote` (`quote-change`) | web, same source for stock and benchmark |
+| Quarterly EPS, revenue, op income | `statements` (`income-statement`, `quarter` limit 5, and `Q<n>` limit 2) | latest 10-Q / press release (GAAP figures) |
+| Annual EPS, revenue, op income, shares, EBITDA | `statements` (`income-statement`, `annual` limit 4) | 10-K |
+| ROE, ROIC, ND/EBITDA, FCF yield | `statements` (`key-metrics`, `annual` limit 1) | `metrics-ratios` annual |
+| Next earnings date | `calendar` (`earnings-company`, limit 5) | web: company IR page |
+| Market (both indexes) | `indexes` (`index-quote`) and `quote` (`quote-change`) | web |
+| News, catalysts, moat, capital allocation | WebSearch with month and year in the query | omit N, set `moat`/`capital` to null |
+| Institutional ownership trend | WebSearch "TICKER institutional ownership 13F <quarter YYYY>" | omit I |
+| ETF price, MAs, returns, holdings | WebSearch / WebFetch stockanalysis.com/etf/TICKER | — |
 
-## Composite score (stocks)
+If FMP isn't connected at all, gather the same fields from the web, add every factor so
+sourced to `web_sourced`, and the confidence level will reflect it.
 
-Weighted average, echoing IBD's emphasis on earnings and relative strength:
+## Checking reliability
 
-| Factor | C | A | L | N | S | I | M |
-|---|---|---|---|---|---|---|---|
-| Weight | 20% | 20% | 20% | 12.5% | 7.5% | 10% | 10% |
-
-Normalize to **0–99** (composite × 0.99, rounded).
-
-**Market cap rule:** in a confirmed *downtrend* (M ≤ 25), cap the final score at 74 —
-no Buy verdicts against the market. In "correction risk" (M ≤ 50), cap at 84.
-
-**Verdict bands:** ≥80 **Buy** · 50–79 **Hold** · <50 **Sell**.
-
-Interpretation guidance: Buy ≈ IBD Composite ≥80 leader in an uptrend; Hold ≈ fundamentals
-intact but something (RS, trend, deceleration) argues against new money; Sell ≈ broken
-fundamentals or clear laggard.
-
-## ETF mode
-
-CAN SLIM's earnings factors don't apply to funds. Score an ETF on four factors:
-
-| Factor | Weight | Rubric |
-|---|---|---|
-| Relative strength vs. `^GSPC` (same RS_raw formula) | 35% | Same bands as L above |
-| Trend: price vs. own 50d/200d SMA | 30% | Above both & 50d>200d → 85–100; above 200d only → 55–70; below 50d → 30–50; below both → 0–25 |
-| 52-week-high proximity | 15% | Same bands as N's second half |
-| Market direction (M, as above) | 20% | Same rubric |
-
-Same 0–99 normalization, same downtrend caps, same verdict bands. Mention in the synopsis
-what the ETF holds and its expense ratio if available.
-
-**ETF data sourcing:** on the user's FMP plan, ETF symbols are gated across quote,
-quote-change, chart, and etfAndMutualFunds. Try `quote` once; when denied, pull the ETF's
-price, 52-week high, MA status, and 3M/6M/1Y returns from `WebSearch` (stockanalysis.com
-and barchart summaries work well). Index data for `^GSPC`/`^IXIC` remains available via
-`mcp__FMP__indexes` and `quote-change`.
-
-## Long-term thesis read (stocks only, separate from the score)
-
-CAN SLIM is a trading system: its sell rules (8% stop-loss, distribution-day breaks, RS
-deterioration) are tuned for a holding period of months, not years. A long-term investor
-who exits on those signals gets shaken out of positions they meant to hold for years. So
-alongside the 0–99 score, produce a second, independent label: is the **long-term thesis**
-Intact, At Risk, or Broken. It never changes the CAN SLIM score or verdict — it is
-reported next to it, and the two are allowed to disagree.
-
-Answer four questions from data already gathered in step 2 (annual/quarterly financials,
-share-count trend, and the news search, which covers competitive and regulatory
-developments alongside catalysts). No separate research pass.
-
-1. **Core business durability** — is the primary revenue engine still growing and
-   profitable on its own (revenue and margin trend), independent of the stock's price
-   action? For pre-revenue or early-commercialization companies, judge instead on progress
-   toward commercial traction (contracts, pilots, design wins) and whether the cash runway
-   supports reaching it.
-2. **Capital allocation discipline** — is heavy spending (capex, M&A, R&D ramps) a
-   reasoned bet with a plausible payback, or empire-building? Read management's own stated
-   rationale from the news search, not the headline spending number alone.
-3. **Balance sheet & share count trend** — buybacks shrinking the share count and a
-   manageable debt load favor "intact"; heavy dilution or rising leverage favor "at risk."
-   (Reuses the S-factor data.)
-4. **Moat / competitive position** — is competitive pressure, regulatory action, or
-   technological disruption eroding the business's position over a multi-year horizon?
-
-| Label | Meaning |
-|---|---|
-| **Intact** | All four hold up. Nothing structural has changed, even if the score is weak on short-term momentum. |
-| **At Risk** | One or two are genuinely uncertain or turning negative (an unproven capex bet, a real competitive threat) — not yet disqualifying, but worth re-checking each quarter. |
-| **Broken** | The core business is shrinking or impaired, capital is being destroyed, or the moat has clearly failed. Structural, not one bad quarter. |
-
-Weight questions 1 and 4 most heavily: a company survives a bad capital-allocation cycle or
-a stretched balance sheet far more often than a shrinking core business or a lost moat.
-
-If the inputs behind two or more questions are missing or web-sourced only, call the thesis
-read low-confidence rather than asserting a label flatly.
-
-When the CAN SLIM verdict and the thesis label disagree (e.g. Sell score / Intact thesis),
-say so explicitly — that gap is the useful signal: timing versus reasons to own.
-
-**ETF mode:** skip the thesis read entirely and omit the line from the output. These four
-questions are company-specific and have no meaningful fund analogue — do not improvise one.
-
-## Data map: need → primary source → fallback
-
-FMP plan-gating verified as of Aug 2026 on the user's plan: quarterly & TTM statements,
-`news`, `calendar` (earnings history), and `form13F` are **gated** — go straight to the
-web fallback for those. Everything in the "primary" column below is confirmed working.
-
-| Data need | Primary source | Fallback |
-|---|---|---|
-| Price, 52w hi/lo, volume, mkt cap, 50/200-day avg | `quote` (`quote`) — includes `priceAvg50`/`priceAvg200` | search "TICKER stock price 52 week high" |
-| Stock vs ETF, profile, sector | `company` (`profile-symbol`) — `isEtf`/`isFund` flags | search "TICKER company profile" |
-| Multi-period returns (RS factor) | `quote` (`quote-change`) for ticker and `^GSPC` | search "TICKER 3 month 6 month 1 year performance" |
-| Quarterly EPS/revenue YoY (C factor) | `WebSearch` "TICKER quarterly results EPS revenue YoY" (FMP quarterly gated) | `WebFetch` the latest earnings press release |
-| Annual EPS (4y), share count trend | `statements` (`income-statement`, period `annual`, limit 4) | search "TICKER annual EPS history" |
-| ROE, margins, debt | `statements` (`metrics-ratios`, annual) — ROE = `netIncomePerShare / shareholdersEquityPerShare` | search "TICKER return on equity" |
-| Piotroski/Altman sanity check (optional) | `statements` (`financial-scores`) | — |
-| Float | `company` (`shares-float`) | search "TICKER shares float" |
-| Market direction (M factor) | `indexes` (`index-quote`) for `^GSPC` and `^IXIC` — `priceAvg50`/`priceAvg200` built in | search "S&P 500 Nasdaq above 50 day 200 day moving average" |
-| Institutional ownership (I factor) | `WebSearch` "TICKER institutional ownership percent trend" (FMP 13F gated) | note factor as approximate |
-| News/catalysts (N factor) | `WebSearch` "TICKER news product launch guidance" (FMP news gated) | — |
-| ETF price/returns/MA status/fund info | `WebSearch` (FMP gates ETF symbols on this plan — try `quote` once, expect denial) | `WebFetch` stockanalysis.com/etf/TICKER |
-
-Degrade gracefully: a missing single input means score that factor from the best available
-proxy and flag it; it never blocks the whole analysis. If an FMP endpoint returns ACCESS
-DENIED, don't retry it — use the fallback column.
+- `python3 -m unittest -v test_score.py` (in `scripts/`) covers band edges, losses,
+  negative equity, splits, the stage table, caps, thesis rules, the actions, a golden
+  NVDA snapshot, and the market gate on real S&P 500 + Nasdaq weeks from the 2000–02,
+  2007–09, 2020 and 2022 bears.
+- `python3 backtest_market.py [weekly.csv]` replays the market gate week by week with
+  forward returns. Run it on any change to `weekly_stage` or `market_regime`.
+  With two files it gates on both indexes, as live:
+  `python3 backtest_market.py fixtures/spx_weekly_1999_2003.csv fixtures/ixic_weekly_1999_2003.csv`.
+  `test_score.MarketHistory` pins key weeks from all four bears (both indexes) and asserts
+  the gate stayed shut from its final close to the low in each.
+- Repeat-run check after any change to `SKILL.md`: run 3–4 tickers five times on the same
+  day and diff the factor lines. Scores can only vary through inputs or the four
+  judgments, so any variance points at a data-gathering step that needs tightening.
