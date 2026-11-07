@@ -22,8 +22,8 @@ weekly chart. For a US stock or ETF it returns:
 IBD's daily sell rules (8% stop, distribution days) are deliberately left out. Holders exit
 on a broken thesis or a weekly Stage 4, not on daily noise. New buys are for **leaders**
 only (Quality ≥ 70, thesis Intact, Stage 2, beating the S&P 500 by ≥ 10pp) and pause
-while either index is below its 40-wk MA, except half-size starter buys in leaders while
-the market bases in Stage 1.
+while either index is below its 40-wk MA, except half-size starter buys in leaders once
+both indexes are back above a 40-wk that is still falling (repairing after a decline).
 
 ```
 /canslim NVDA
@@ -58,6 +58,7 @@ the methodology.
 | `.claude/skills/canslim/scripts/score.py` | Deterministic scorer |
 | `.claude/skills/canslim/scripts/example_input.json` | Input schema (live NVDA snapshot) |
 | `.claude/skills/canslim/scripts/test_score.py` | Regression tests: `python3 -m unittest -v test_score.py` |
+| `.claude/skills/canslim/scripts/backtest_market.py` | Replays the market gate on weekly index history (`fixtures/`) |
 
 To use the skill outside this repo, copy the whole `.claude/skills/canslim/` folder
 (including `references/` and `scripts/`) into `~/.claude/skills/`, or upload it as a zip

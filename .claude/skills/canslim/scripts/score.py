@@ -162,10 +162,12 @@ def weekly_stage(price, ma50, ma200, returns):
         if slope == "rising":
             s, st, lab = 35 + bump, 2, "Stage 2 correction below 40-wk"
         elif slope == "flat":
+            # Below a flat 40-wk is ambiguous in real time: a base, or a rollover into
+            # Stage 4 (S&P 500, Apr-May 2022). Labelled as such; never a buy signal.
             if prior_up:
                 s, st, lab = 25 + bump, 3, "Stage 3 breakdown, 40-wk flat"
             else:
-                s, st, lab = 30 + bump, 1, "Stage 1 base below 40-wk"
+                s, st, lab = 30 + bump, 1, "below a flat 40-wk, base or rollover"
         else:
             s, st, lab = (12 if golden else 5), 4, "Stage 4 downtrend"
     return {
@@ -414,10 +416,16 @@ def market_regime(reads):
     """Gate for new buys, over both indexes.
 
     stage4  - any index below a falling 40-wk: no new buys
-    below40 - any index below its 40-wk (correction or Stage 3 breakdown): no new buys
-    stage1  - every index that is below its 40-wk is basing (flat 40-wk after a decline):
-              starter buys in leaders only, the early-bull-market entry
-    ok      - both indexes above their 40-wk MAs
+    below40 - any index below its 40-wk otherwise, flat MA included: no new buys
+    repair  - every index above its 40-wk, but at least one 40-wk is still falling (the
+              index has reclaimed the line after a decline): starter buys in leaders only
+    ok      - every index above a flat or rising 40-wk: normal rules
+
+    "Below a flat 40-wk" is deliberately not treated as a Stage 1 base. On the S&P 500 in
+    2022 that state was the rollover into the bear market (Apr 29 - May 27, index at
+    fresh 52-wk lows, another -13% to the October low). The real bottom formed while
+    the lagging 40-wk was still falling, and the first usable signal was the index
+    reclaiming it (Jan 13 2023, ~12% off the low). See backtest_market.py.
     """
     if not reads:
         return None, []
@@ -425,11 +433,12 @@ def market_regime(reads):
     if s4:
         return "stage4", s4
     below = [k for k, v in reads.items() if not v["above40"]]
-    if not below:
-        return "ok", []
-    if all(reads[k]["stage"] == 1 for k in below):
-        return "stage1", below
-    return "below40", below
+    if below:
+        return "below40", below
+    repairing = [k for k, v in reads.items() if v["slope_40w"] == "falling"]
+    if repairing:
+        return "repair", repairing
+    return "ok", []
 
 
 def index_names(syms):
@@ -517,7 +526,7 @@ def new_money(is_etf, q, thesis, timing, stage, ext, rs_delta, rs_applies, regim
         return "Avoid", "weekly Stage 4 downtrend"
 
     leader = is_leader(is_etf, q, thesis, stage, rs_delta, rs_applies)
-    buy_ok = regime in ("ok", "stage1", None)
+    buy_ok = regime in ("ok", "repair", None)
     names = index_names(regime_syms)
     soon = earn_days is not None and 0 <= earn_days <= EARNINGS_WINDOW
     earn = f"; earnings in {earn_days}d, start half size or wait for the report" if soon else ""
@@ -526,11 +535,11 @@ def new_money(is_etf, q, thesis, timing, stage, ext, rs_delta, rs_applies, regim
     # the stock is far above its 10-wk line, and buying there is chasing.
     if leader and buy_ok and ext is not None and ext > EXTENDED_PCT:
         return "Buy on pullback", f"extended {ext:.0f}% above the 10-wk MA; wait for a pullback toward {money(ma10)}{earn}"
-    if leader and regime == "stage1":
+    if leader and regime == "repair":
         tail = f"; earnings in {earn_days}d, consider waiting for the report" if soon else ""
-        return "Buy (starter)", (f"market basing in Stage 1 and this leader is already in Stage 2; "
-                                 f"half size now, add the rest when the {names} closes a week above "
-                                 f"its 40-wk MA{tail}")
+        return "Buy (starter)", (f"market repairing: the {names} is back above a still-falling 40-wk MA "
+                                 f"and this leader is already in Stage 2; half size now, add the rest "
+                                 f"once that 40-wk flattens or turns up{tail}")
     if leader and buy_ok and timing is not None and timing >= TIMING_BUY:
         return "Buy", f"leader in Stage 2 above the 10/40-wk MAs, not extended{earn}"
 
@@ -553,8 +562,8 @@ def new_money(is_etf, q, thesis, timing, stage, ext, rs_delta, rs_applies, regim
     elif regime == "below40":
         its = "its 40-wk MA" if len(regime_syms) == 1 else "their 40-wk MAs"
         reasons.append(f"{names} below {its}, no new buys until it recovers")
-    elif regime == "stage1":
-        reasons.append("market basing in Stage 1, starter buys in leaders only")
+    elif regime == "repair":
+        reasons.append("market repairing (back above a still-falling 40-wk), starter buys in leaders only")
     if not reasons:
         reasons.append("wait for a new base or breakout")
     if soon:
@@ -609,15 +618,15 @@ def score_ticker(t, market, as_of):
     tf = {"W": stage["score"] if stage else None, "L": L, "E": E,
           "M": worst["score"] if worst else None}
     timing = to99(weighted(tf, TIMING_WEIGHTS))
-    # Market gate: no new buys while either index is below its 40-wk MA, except starter
-    # buys in leaders while the market is basing in Stage 1 (see market_regime).
+    # Market gate: no new buys while either index is below its 40-wk MA; starter buys in
+    # leaders once both are back above it but a 40-wk is still falling (see market_regime).
     regime, regime_syms = market_regime(mreads)
     if regime is None:
         flags.append("market data missing, market rule not applied")
     if timing is not None:
         if regime == "stage4":
             timing = min(timing, 49)
-        elif regime in ("below40", "stage1"):
+        elif regime in ("below40", "repair"):
             timing = min(timing, 69)
     if timing is not None and (tf["W"] is None or tf["L"] is None):
         timing = min(timing, 69)

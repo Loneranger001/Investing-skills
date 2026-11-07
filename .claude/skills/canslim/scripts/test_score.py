@@ -14,8 +14,10 @@ HEALTHY_MARKET = {
 }
 # Below a still-rising 40-wk: Stage 2 correction.
 CORRECTION_INDEX = {"price": 93, "ma50": 100, "ma200": 95, "returns": {"3M": -5, "6M": 2, "1Y": 15}}
-# Below a flat 40-wk after a down year: Stage 1 base.
-STAGE1_INDEX = {"price": 90, "ma50": 95, "ma200": 97, "returns": {"3M": 1, "6M": -2, "1Y": -8}}
+# Below a flat 40-wk after a down year: looks like a base, but can be a rollover.
+FLAT_BELOW_INDEX = {"price": 90, "ma50": 95, "ma200": 97, "returns": {"3M": 1, "6M": -2, "1Y": -8}}
+# Back above a 40-wk that is still falling: repairing after a decline.
+REPAIR_INDEX = {"price": 100, "ma50": 96, "ma200": 98, "returns": {"3M": 8, "6M": 5, "1Y": -15}}
 DOWN_MARKET = {
     "^GSPC": {"price": 80, "ma50": 85, "ma200": 100, "returns": {"3M": -15, "6M": -20, "1Y": -25}},
     "^IXIC": {"price": 80, "ma50": 85, "ma200": 100, "returns": {"3M": -15, "6M": -20, "1Y": -25}},
@@ -153,25 +155,30 @@ class Actions(unittest.TestCase):
         self.assertEqual(r["new_money"]["action"], "Watchlist")
         self.assertIn("Nasdaq below its 40-wk MA, no new buys", r["new_money"]["note"])
 
-    def test_stage1_market_allows_starter_buys_in_leaders(self):
-        r = run_one(LEADER, market={"^GSPC": STAGE1_INDEX, "^IXIC": STAGE1_INDEX})
-        self.assertEqual(r["market"]["regime"], "stage1")
-        self.assertEqual(r["new_money"]["action"], "Buy (starter)")
-        self.assertIn("S&P 500 and Nasdaq closes a week above", r["new_money"]["note"])
-
-    def test_stage1_market_with_one_index_still_correcting_blocks_buys(self):
-        r = run_one(LEADER, market={"^GSPC": STAGE1_INDEX, "^IXIC": CORRECTION_INDEX})
+    def test_below_a_flat_40wk_is_not_a_buy_signal(self):
+        r = run_one(LEADER, market={"^GSPC": FLAT_BELOW_INDEX, "^IXIC": FLAT_BELOW_INDEX})
         self.assertEqual(r["market"]["regime"], "below40")
         self.assertEqual(r["new_money"]["action"], "Watchlist")
 
-    def test_stage1_market_does_not_help_laggards(self):
-        # Same Stage 2 chart as LEADER, but only +8.7pp ahead of the S&P (needs +10).
+    def test_repairing_market_allows_starter_buys_in_leaders(self):
+        r = run_one(LEADER, market={"^GSPC": REPAIR_INDEX, "^IXIC": REPAIR_INDEX})
+        self.assertEqual(r["market"]["regime"], "repair")
+        self.assertLessEqual(r["timing"], 69)
+        self.assertEqual(r["new_money"]["action"], "Buy (starter)")
+        self.assertIn("S&P 500 and Nasdaq is back above a still-falling 40-wk", r["new_money"]["note"])
+
+    def test_repair_with_one_index_still_below_blocks_buys(self):
+        r = run_one(LEADER, market={"^GSPC": REPAIR_INDEX, "^IXIC": CORRECTION_INDEX})
+        self.assertEqual(r["market"]["regime"], "below40")
+        self.assertEqual(r["new_money"]["action"], "Watchlist")
+
+    def test_repairing_market_does_not_help_laggards(self):
+        # Same Stage 2 chart as LEADER, but only +5.9pp ahead of the S&P (needs +10).
         r = run_one(variant(returns={"3M": -2, "6M": 8, "1Y": 15}),
-                    market={"^GSPC": STAGE1_INDEX, "^IXIC": STAGE1_INDEX})
+                    market={"^GSPC": REPAIR_INDEX, "^IXIC": REPAIR_INDEX})
         self.assertEqual(r["weekly"]["stage"], 2)
         self.assertFalse(r["leader"])
-        self.assertIn("not a leader yet: RS +9pp", r["new_money"]["note"])
-        self.assertEqual(r["new_money"]["action"], "Watchlist")
+        self.assertIn("not a leader yet: RS +6pp", r["new_money"]["note"])
         self.assertIn("starter buys in leaders only", r["new_money"]["note"])
 
     def test_downtrend_market_caps_timing_and_blocks_buys(self):
@@ -269,6 +276,41 @@ class ETF(unittest.TestCase):
         etf = {"ticker": "XYZ", "type": "etf", "price": 100, "ma50": 95, "ma200": 80, "year_high": 102,
                "returns": {"3M": 12, "6M": 20, "1Y": 40}}
         self.assertEqual(run_one(etf)["new_money"]["action"], "Buy")
+
+
+class MarketHistory(unittest.TestCase):
+    """Real S&P 500 weeks (fixtures/spx_weekly_2021_2023.csv; replay with backtest_market.py)."""
+
+    WEEKS = {
+        # Rollover into the 2022 bear: fresh 52-wk lows, then another -13% to the Oct low.
+        "2022-04-29": ({"price": 4131.93, "ma50": 4375.44, "ma200": 4493.29,
+                        "returns": {"6M": -10.28, "1Y": -1.18}}, "below40"),
+        "2022-05-20": ({"price": 3901.36, "ma50": 4288.52, "ma200": 4462.01,
+                        "returns": {"6M": -16.96, "1Y": -6.12}}, "below40"),
+        # Index reclaims a still-falling 40-wk, ~12% off the Oct 2022 low.
+        "2023-01-13": ({"price": 3999.09, "ma50": 3942.13, "ma200": 3955.06,
+                        "returns": {"6M": 3.52, "1Y": -14.24}}, "repair"),
+        # 40-wk has flattened with the index above it.
+        "2023-04-28": ({"price": 4169.48, "ma50": 4041.99, "ma200": 3970.58,
+                        "returns": {"6M": 6.88, "1Y": 0.91}}, "ok"),
+    }
+
+    def test_gate_on_real_weeks(self):
+        for week, (idx, expected) in self.WEEKS.items():
+            st = score.weekly_stage(idx["price"], idx["ma50"], idx["ma200"], idx["returns"])
+            self.assertEqual(score.market_regime({"^GSPC": st})[0], expected, week)
+
+    def test_2022_rollover_never_opened_the_gate(self):
+        import csv
+        rows = list(csv.DictReader(open(os.path.join(HERE, "fixtures", "spx_weekly_2021_2023.csv"))))
+        c = [float(r["close"]) for r in rows]
+        dates = [r["date"] for r in rows]
+        for i in range(52, len(c)):
+            if not ("2022-04-15" <= dates[i] <= "2022-11-30"):
+                continue
+            st = score.weekly_stage(c[i], sum(c[i - 9:i + 1]) / 10, sum(c[i - 39:i + 1]) / 40,
+                                    {"6M": (c[i] / c[i - 26] - 1) * 100, "1Y": (c[i] / c[i - 52] - 1) * 100})
+            self.assertIn(score.market_regime({"^GSPC": st})[0], ("below40", "stage4"), dates[i])
 
 
 if __name__ == "__main__":

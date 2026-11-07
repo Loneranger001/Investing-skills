@@ -161,16 +161,31 @@ Over both indexes (`market_regime` in `score.py`):
 
 | Regime | Condition | New buys | Timing cap |
 |---|---|---|---|
-| ok | both indexes above their 40-wk MA | normal rules | — |
-| stage1 | every index below its 40-wk is in Stage 1 (40-wk flat after a down year) | **starter (half-size) buys in leaders only** | 69 |
-| below40 | any index below its 40-wk otherwise (correction under a rising 40-wk, Stage 3 breakdown) | none | 69 |
+| ok | both indexes above a flat or rising 40-wk MA | normal rules | — |
+| repair | both above their 40-wk, but at least one 40-wk is still falling | **starter (half-size) buys in leaders only** | 69 |
+| below40 | any index below its 40-wk otherwise: under a rising 40-wk (correction) or a flat one | none | 69 |
 | stage4 | any index below a falling 40-wk | none | 49 |
 
-Stage 1 is the exception because it's where new bull markets start. The leaders of the
-next advance tend to be the first stocks to break out while the indexes are still basing,
-and buying them then is the "buy cheap" entry. A Stage 1 *stock* is never a buy (it's
-Watchlist until it reaches Stage 2): its base can last years or roll over, and its RS is
-weak by definition.
+**Why "repair" and not "Stage 1 below the 40-wk".** A Stage 1 base can't be identified
+reliably in real time. "Below a flat 40-wk after a down year" looks like one, but on the
+S&P 500 in 2022 that state was the rollover *into* the bear market: Apr 29 to May 27, with
+the index at fresh 52-wk lows on 4 of those 5 weeks, then another −13% to the October low.
+An earlier version of this skill allowed starter buys there. The actual bottom formed
+while the lagging 40-wk was still falling, so the first usable "buy cheap" signal was the
+index **reclaiming** that falling line: Jan 13 2023 at 3,999, ~12% above the low and
+about 4% below the level where the 40-wk flattened (Apr 28 2023, 4,169).
+`scripts/backtest_market.py` replays every week; `test_score.MarketHistory` locks these
+weeks in.
+
+Known misses on the same data: the Mar 25 to Apr 1 2022 bear-market rally reclaimed a
+still-rising 40-wk and read "ok" (the index then fell ~20%), and Dec 2 2022 read "repair"
+for one week before slipping back. Any moving-average gate has these; the leader test and
+starter sizing limit the damage. The weekly label for a flat 40-wk is also unreliable on
+the Stage 1 vs Stage 3 question (Apr to Jun 2023 reads "Stage 3 top" at the start of a new
+advance). It doesn't change the gate.
+
+A Stage 1 *stock* is never a buy (it's Watchlist until it reaches Stage 2): its base can
+last years or roll over, and its RS is weak by definition.
 
 The market gate never applies to holders.
 
@@ -199,11 +214,11 @@ a bad capital cycle far more often than a shrinking core or a lost moat.
 **New money** (first match wins):
 
 1. Thesis Broken, or Quality < 55 → **Avoid**. Weekly Stage 4 → **Avoid**.
-2. Leader, regime ok or stage1, and >20% above the 10-wk → **Buy on pullback** (level:
+2. Leader, regime ok or repair, and >20% above the 10-wk → **Buy on pullback** (level:
    the 10-wk MA). Checked first, because a strong trend and RS can lift Timing past 70
    even when the stock is extended.
-3. Leader, regime stage1 → **Buy (starter)**: half size; add the rest when the basing
-   index closes a week above its 40-wk MA.
+3. Leader, regime repair → **Buy (starter)**: half size; add the rest once the falling
+   40-wk flattens or turns up (regime ok).
 4. Leader, regime ok, Timing ≥ 70 → **Buy**.
 5. Anything else → **Watchlist**, with every reason that applies: Quality under 70, thesis
    At Risk, the weekly level to reclaim (40-wk, else 10-wk), not a leader (RS vs. the
@@ -281,8 +296,11 @@ sourced to `web_sourced`, and the confidence level will reflect it.
 ## Checking reliability
 
 - `python3 -m unittest -v test_score.py` (in `scripts/`) covers band edges, losses,
-  negative equity, splits, the stage table, caps, thesis rules, the actions, and a golden
-  NVDA snapshot.
+  negative equity, splits, the stage table, caps, thesis rules, the actions, a golden
+  NVDA snapshot, and the market gate on real 2022–23 S&P 500 weeks.
+- `python3 backtest_market.py [weekly.csv]` replays the market gate week by week with
+  forward returns. Run it on any change to `weekly_stage` or `market_regime`; add more
+  history (2000–02, 2008–09, 2018, 2020) to `fixtures/` to widen the test.
 - Repeat-run check after any change to `SKILL.md`: run 3–4 tickers five times on the same
   day and diff the factor lines. Scores can only vary through inputs or the four
   judgments, so any variance points at a data-gathering step that needs tightening.
