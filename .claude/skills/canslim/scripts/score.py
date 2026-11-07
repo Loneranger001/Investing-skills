@@ -559,12 +559,11 @@ def score_ticker(t, market, as_of):
     tf = {"W": stage["score"] if stage else None, "L": L, "E": E,
           "M": worst["score"] if worst else None}
     timing = to99(weighted(tf, TIMING_WEIGHTS))
+    # Only a Stage 4 market blocks new buys. A normal correction (index below a still-rising
+    # 40-wk) is not capped; it just weighs on Timing through M, so leaders stay buyable.
     mkt_cap_reason = None
-    if timing is not None and worst:
-        if worst["stage"] == 4:
-            timing, mkt_cap_reason = min(timing, 49), f"{worst_name} in a Stage 4 downtrend, no new buys"
-        elif not worst["above40"]:
-            timing, mkt_cap_reason = min(timing, 69), f"{worst_name} below its 40-wk MA, no new buys until it recovers"
+    if timing is not None and worst and worst["stage"] == 4:
+        timing, mkt_cap_reason = min(timing, 49), f"{worst_name} in a Stage 4 downtrend, no new buys"
     if timing is not None and (tf["W"] is None or tf["L"] is None):
         timing = min(timing, 69)
         flags.append("Timing capped at 69: W or L missing")

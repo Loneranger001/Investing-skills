@@ -142,8 +142,9 @@ Without 6M/1Y returns (IPO), slope = rising if ma50 > ma200, else falling (flagg
 
 ## Caps and missing data
 
-- Weaker index in **Stage 4** → Timing capped at 49. Weaker index **below its 40-wk MA** →
-  capped at 69. Either way, no new Buys.
+- Weaker index in **Stage 4** (below a falling 40-wk MA) → Timing capped at 49: no new
+  Buys. A normal correction (index below a still-rising 40-wk, or a Stage 3 top) is **not**
+  capped; it only lowers Timing through M (15%), so leaders can still be bought.
 - W or L missing → Timing capped at 69. A or C missing → Quality capped at 69.
 - Any other missing factor is dropped and the rest re-weighted.
 

@@ -85,7 +85,7 @@ class Golden(unittest.TestCase):
         self.assertEqual(r["thesis"]["label"], "At Risk")
         self.assertEqual(r["weekly"]["label"], "Stage 2 correction below 40-wk")
         self.assertEqual(r["market"]["weakest"], "^IXIC")
-        self.assertIn("Nasdaq below its 40-wk MA", r["new_money"]["note"])
+        self.assertNotIn("no new buys", r["new_money"]["note"])  # Nasdaq is correcting, not Stage 4
         self.assertNotIn("half size", r["new_money"]["note"])  # not a Buy, so no sizing advice
 
     def test_deterministic(self):
@@ -126,6 +126,15 @@ class Actions(unittest.TestCase):
         r = run_one(variant(price=125, year_high=126, ma50=95))
         self.assertEqual(r["new_money"]["action"], "Buy on pullback")
         self.assertIn("$95.00", r["new_money"]["note"])
+
+    def test_leader_still_buyable_in_normal_correction(self):
+        # Index below its 40-wk but the 40-wk is still rising: Stage 2 correction, not Stage 4.
+        correction = {s: {"price": 93, "ma50": 100, "ma200": 95, "returns": {"3M": -5, "6M": 2, "1Y": 15}}
+                      for s in ("^GSPC", "^IXIC")}
+        r = run_one(LEADER, market=correction)
+        self.assertEqual(r["market"]["reads"]["^IXIC"]["label"], "Stage 2 correction below 40-wk")
+        self.assertEqual(r["new_money"]["action"], "Buy")
+        self.assertLess(r["timing"], run_one(LEADER)["timing"])  # weaker market still costs Timing points
 
     def test_downtrend_market_caps_timing_and_blocks_buys(self):
         r = run_one(LEADER, market=DOWN_MARKET)
