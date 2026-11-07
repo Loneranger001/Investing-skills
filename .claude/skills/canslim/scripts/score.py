@@ -423,14 +423,17 @@ def market_regime(reads):
               falling (reclaimed after a decline): starter buys in leaders only
     ok      - every index confirmed above a flat or rising 40-wk: normal rules
 
-    Two lessons from replaying 2007-10, 2018-21 and 2021-23 S&P 500 weeks
-    (backtest_market.py, fixtures/):
+    Lessons from replaying the 2000-02, 2007-09, 2020 and 2022 bears on S&P 500 and
+    Nasdaq weekly closes (backtest_market.py, fixtures/):
     - "Below a flat 40-wk" is not a Stage 1 base. In Jan 2008 and Apr-May 2022 it was the
       rollover into the bear market. Real bottoms formed while the 40-wk was still falling.
     - Every false re-entry during those bears (Dec 2007, May 2008, Feb/Mar/Apr 2022) was
       a close within ~1.2% of the 40-wk. Requiring a 2% margin removed all five and
       delayed the real re-entries by 0-5%. Any margin from 1.5% to 3% removes the same
       five and gives the same re-entry weeks, so 2% is not a fitted knife-edge.
+    - Requiring both indexes removed the S&P-only false buys of Mar 2002 and Jan 2022.
+      Slow tops still leak: the gate was open on and off through mid-2000 while the S&P
+      chopped near its high (the Nasdaq was too far above its own 40-wk to help).
     """
     if not reads:
         return None, [], ""

@@ -24,7 +24,8 @@ on a broken thesis or a weekly Stage 4, not on daily noise. New buys are for **l
 only (Quality ≥ 70, thesis Intact, Stage 2, beating the S&P 500 by ≥ 10pp) and pause
 while either index is below its 40-wk MA (or less than 2% above it), except half-size
 starter buys in leaders once both are confirmed above a 40-wk that is still falling. The
-gate is backtested on the 2007–09, 2020 and 2022 bear markets.
+gate is backtested on the 2000–02, 2007–09, 2020 and 2022 bear markets (S&P 500 + Nasdaq):
+it never reopened between its final close and the low in any of them.
 
 ```
 /canslim NVDA

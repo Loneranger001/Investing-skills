@@ -279,54 +279,53 @@ class ETF(unittest.TestCase):
 
 
 class MarketHistory(unittest.TestCase):
-    """The market gate on real S&P 500 weeks (fixtures/*.csv; replay with backtest_market.py)."""
+    """The market gate on real weeks, both indexes as live (fixtures/; replay with backtest_market.py)."""
 
-    FIX = {"2008": "spx_weekly_2006_2010.csv", "2020": "spx_weekly_2018_2021.csv",
-           "2022": "spx_weekly_2021_2023.csv"}
+    YEARS = {"2000": "1999_2003", "2008": "2006_2010", "2020": "2018_2021", "2022": "2021_2023"}
 
     @classmethod
-    def load(cls, key):
-        import csv
-        with open(os.path.join(HERE, "fixtures", cls.FIX[key])) as f:
-            rows = list(csv.DictReader(f))
-        return [r["date"] for r in rows], [float(r["close"]) for r in rows]
-
-    @staticmethod
-    def regime(c, i):
-        st = score.weekly_stage(c[i], sum(c[i - 9:i + 1]) / 10, sum(c[i - 39:i + 1]) / 40,
-                                {"6M": (c[i] / c[i - 26] - 1) * 100, "1Y": (c[i] / c[i - 52] - 1) * 100})
-        return score.market_regime({"^GSPC": st})[0]
+    def series(cls, key):
+        import backtest_market as bm
+        y = cls.YEARS[key]
+        rows = bm.replay([os.path.join(HERE, "fixtures", f"spx_weekly_{y}.csv"),
+                          os.path.join(HERE, "fixtures", f"ixic_weekly_{y}.csv")])
+        return {d: regime for _, d, _, _, regime in rows}
 
     def test_key_weeks(self):
         expected = {
+            "2000": {"2000-04-14": "below40",   # Nasdaq crash week
+                     "2002-03-15": "below40",   # S&P alone opened here (then -27%); Nasdaq below its line
+                     "2003-04-25": "repair",    # both confirmed above still-falling 40-wks, +12% off the low
+                     "2003-06-20": "ok"},
             "2008": {"2008-01-11": "below40",   # rollover below a flat 40-wk (old rule: Stage 1 starter)
                      "2008-05-16": "below40",   # bear rally, 0.0% above the 40-wk: unconfirmed (then -39%)
-                     "2009-06-05": "repair",    # confirmed above a still-falling 40-wk, +38% off the low
+                     "2009-06-05": "repair",    # +38% off the low
                      "2009-10-09": "ok"},
             "2020": {"2020-02-28": "below40",   # first week of the crash
                      "2020-04-03": "below40",   # below a flat 40-wk (old rule: Stage 1 starter)
                      "2020-06-05": "repair",
                      "2020-06-19": "ok"},
-            "2022": {"2022-04-29": "below40",   # rollover (old rule: Stage 1 starter, then -13%)
-                     "2022-05-20": "below40",
-                     "2022-12-02": "below40",   # +0.9% above the 40-wk: unconfirmed
-                     "2023-01-13": "below40",   # +1.1%: unconfirmed
-                     "2023-01-27": "repair",    # +3.3%: confirmed, ~14% off the Oct low
+            "2022": {"2022-01-07": "below40",   # Nasdaq only +1.2% above: shut 2 weeks before the S&P broke
+                     "2022-04-29": "stage4",    # S&P rolling over (old rule: Stage 1 starter); Nasdaq already Stage 4
+                     "2022-12-02": "stage4",    # S&P +0.9% (unconfirmed); Nasdaq still Stage 4
+                     "2023-01-27": "below40",   # S&P confirmed, Nasdaq only +1.8%
+                     "2023-02-03": "repair",    # both confirmed, ~15% off the Oct low
                      "2023-04-28": "ok"},
         }
         for key, weeks in expected.items():
-            d, c = self.load(key)
+            got = self.series(key)
             for week, want in weeks.items():
-                self.assertEqual(self.regime(c, d.index(week)), want, f"{key} {week}")
+                self.assertEqual(got[week], want, f"{key} {week}")
 
     def test_gate_stays_shut_from_first_close_to_the_low(self):
-        # (first week the gate closed, weekly-close low) for each bear
-        bears = {"2008": ("2007-11-09", "2009-03-06"), "2020": ("2020-02-28", "2020-03-20"),
-                 "2022": ("2022-01-21", "2022-10-14")}
+        # (week the gate shut for good, weekly-close low). In 2000 the gate reopened on and off
+        # near the top until Sep 1 2000 (slow top, S&P near its high); it never reopened after.
+        bears = {"2000": ("2000-09-08", "2002-10-04"), "2008": ("2007-11-02", "2009-03-06"),
+                 "2020": ("2020-02-28", "2020-03-20"), "2022": ("2022-01-07", "2022-10-14")}
         for key, (shut, low) in bears.items():
-            d, c = self.load(key)
-            for i in range(d.index(shut), d.index(low) + 1):
-                self.assertIn(self.regime(c, i), ("below40", "stage4"), f"{key} {d[i]}")
+            for week, regime in self.series(key).items():
+                if shut <= week <= low:
+                    self.assertIn(regime, ("below40", "stage4"), f"{key} {week}")
 
 
 if __name__ == "__main__":

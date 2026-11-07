@@ -169,38 +169,49 @@ at least **2% above** the 40-wk MA (`CONFIRM_PCT`).
 
 The market gate never applies to holders.
 
-### Why it's built this way: S&P 500 replay, three bears
+### Why it's built this way: four bears, both indexes
 
-`scripts/backtest_market.py` replays every week of `fixtures/` (weekly closes, from FMP):
+`scripts/backtest_market.py` replays every week of `fixtures/` (S&P 500 and Nasdaq weekly
+closes from FMP, gate on both as live). S&P 500 levels below.
 
-| Bear | Gate shut | Low (weekly close) | Drop avoided | First re-entry | Full buys | False re-entries during the bear |
-|---|---|---|---|---|---|---|
-| 2007–09 | Nov 9 2007 @1,454 | 683, Mar 2009 | −53% | starter Jun 5 2009 @940 (+38% off low) | Oct 2 2009 @1,025 | none |
-| 2020 | Feb 28 2020 @2,954 | 2,305, Mar 2020 | −22% | starter Jun 5 2020 @3,194 (+39%) | Jun 19 2020 @3,098 | none |
-| 2022 | Jan 21 2022 @4,398 | 3,583, Oct 2022 | −19% | starter Jan 27 2023 @4,071 (+14%) | Apr 28 2023 @4,169 | none |
+| Bear | Weeks open, peak → low | First re-entry after the low | Full buys |
+|---|---|---|---|
+| 2000–02 | 13, all Apr–Sep 2000 near the S&P's high; none after Sep 1 2000 | starter Apr 25 2003 @899 (+12% off the low) | Jun 20 2003 @996 |
+| 2007–09 | 0 | starter Jun 5 2009 @940 (+38%) | Oct 2 2009 @1,025 |
+| 2020 | 1 (Feb 21, the week before the crash) | starter Jun 5 2020 @3,194 (+39%) | Jun 19 2020 @3,098 |
+| 2022 | 0 | starter Feb 3 2023 @4,136 (+15%) | Apr 28 2023 @4,169 |
 
-Three findings shaped the rules:
+Gate shut for good: Sep 8 2000, Nov 2 2007, Feb 28 2020, Jan 7 2022. From then to each
+low it never reopened: no buying of bear-market rallies in four bears.
+
+What shaped the rules:
 
 1. **Stage 1 can't be identified in real time.** "Below a flat 40-wk after a down year"
    looks like a base, but in Jan 2008 and Apr–May 2022 it was the rollover into the bear
    market: the index was at fresh 52-wk lows, and the S&P then fell another 13% (2022) and
-   more than 50% (2008–09). An earlier version of this
-   skill allowed starter buys there. Real bottoms formed while the lagging 40-wk was still
-   falling, so the first usable signal is the index *reclaiming* that falling line.
-2. **Marginal reclaims fail.** Without the 2% margin the gate reopened five times during
-   these bears: Dec 7 2007 (then −14%), May 16 2008 (0.0% above the line, then −39%),
-   Feb 4, Mar 25 and Apr 1 2022 (each then about −20%). All five were within 1.2% of the
-   40-wk. The 2% margin removes all five and delays the real re-entries by 0–5%. Any margin
-   from 1.5% to 3% removes the same five and gives the same re-entry weeks, so 2% isn't a
-   fitted knife-edge. In bull
-   phases it blocked 14 weeks that would otherwise have been open; the index's next
-   13 weeks after those averaged +1.4%, roughly break-even, so little is lost.
-3. **The gate doesn't call tops.** It was open right up to the Feb 2020 crash (index ~10%
-   above a rising 40-wk) and into mid-Jan 2022. It shuts after the first decisive break
-   below the 40-wk. Protection at the top comes from each stock's own weekly stage and the
-   holder rules, not from the market gate.
+   more than 50% (2008–09). An earlier version of this skill allowed starter buys there.
+   Real bottoms formed while the lagging 40-wk was still falling, so the first usable
+   signal is the index *reclaiming* that falling line.
+2. **Marginal reclaims fail.** On the S&P alone and without the 2% margin, the gate
+   reopened five times during the bears: Dec 7 2007 (then −14%), May 16 2008 (0.0% above
+   the line, then −39%), Feb 4, Mar 25 and Apr 1 2022 (each then about −20%). All five were
+   within 1.2% of the 40-wk. The 2% margin removes all five and delays real re-entries by
+   0–5%. Any margin from 1.5% to 3% removes the same five and gives the same re-entry weeks,
+   so 2% isn't a fitted knife-edge.
+3. **Both indexes matter.** The Nasdaq blocked two S&P-only false buys: Mar 15 2002 (S&P
+   2.4% above a 40-wk the slope proxy misread as flat after the 9/11 crash, then −27%) and
+   Jan 7–14 2022 (then −21%). The cost was one week of delay in Feb 2023.
+4. **The gate doesn't call tops.** It was open the week before the Feb 2020 crash (index
+   ~10% above a rising 40-wk). In 2000 it stayed open on and off for six months after the
+   Nasdaq's March peak: the S&P chopped near its high above a rising 40-wk, and the Nasdaq
+   was so far above its own 40-wk after the 1999 run that even a 34% drop barely touched
+   it. Those 13 weeks were followed by S&P drawdowns of up to −19%. Protection at a slow
+   top comes from each stock's own weekly stage, the leader test, and the holder rules.
+   Tested and rejected: "no buys while either index is 20%+ below its 52-wk high". It
+   cut the 2000 leak from 13 to 5 weeks (the worst week stayed) but delayed the 2009
+   re-entry from 940 to 1,029.
 
-The costs are deliberate: re-entry comes 14–39% off the low, in exchange for not buying
+The costs are deliberate: re-entry comes 12–39% off the low, in exchange for not buying
 bear-market rallies. In a V-shaped recovery (2009, 2020) that's a lot of the first leg.
 Labels on a flat 40-wk are also unreliable on Stage 1 vs Stage 3 (May–Jul 2020 and
 Apr–Jun 2023 read "Stage 3 top" at the start of new advances); this doesn't change the gate.
@@ -316,12 +327,14 @@ sourced to `web_sourced`, and the confidence level will reflect it.
 
 - `python3 -m unittest -v test_score.py` (in `scripts/`) covers band edges, losses,
   negative equity, splits, the stage table, caps, thesis rules, the actions, a golden
-  NVDA snapshot, and the market gate on real S&P 500 weeks from 2007–10, 2018–21, 2021–23.
+  NVDA snapshot, and the market gate on real S&P 500 + Nasdaq weeks from the 2000–02,
+  2007–09, 2020 and 2022 bears.
 - `python3 backtest_market.py [weekly.csv]` replays the market gate week by week with
   forward returns. Run it on any change to `weekly_stage` or `market_regime`.
-  `test_score.MarketHistory` pins key weeks from all three fixtures and asserts the gate
-  stayed shut from the first close to the low in each bear. Not yet covered: 2000–02 (a
-  long grind with several bear rallies) and the Nasdaq, which the live gate also uses.
+  With two files it gates on both indexes, as live:
+  `python3 backtest_market.py fixtures/spx_weekly_1999_2003.csv fixtures/ixic_weekly_1999_2003.csv`.
+  `test_score.MarketHistory` pins key weeks from all four bears (both indexes) and asserts
+  the gate stayed shut from its final close to the low in each.
 - Repeat-run check after any change to `SKILL.md`: run 3–4 tickers five times on the same
   day and diff the factor lines. Scores can only vary through inputs or the four
   judgments, so any variance points at a data-gathering step that needs tightening.
