@@ -1,0 +1,69 @@
+{
+  "as_of": "2026-11-07",
+  "mode": "full",
+  "_note": "Schema example. ^GSPC/^IXIC price, MAs and returns and the NVDA block are canslim's live FMP snapshot of 2026-11-07; index year_high values and all ETF figures are illustrative.",
+  "market": {
+    "^GSPC": {"price": 7378.9, "ma50": 7686.53, "ma200": 7322.74, "year_high": 7801.2,
+              "returns": {"3M": -4.29, "6M": 0.19, "1Y": 9.80}},
+    "^IXIC": {"price": 24579.42, "ma50": 26497.06, "ma200": 25092.57, "year_high": 27215.6,
+              "returns": {"3M": -6.71, "6M": -4.87, "1Y": 6.62}}
+  },
+  "portfolio": {
+    "contribution": 2000,
+    "cash_reserve": 3000,
+    "satellite_target_pct": 20,
+    "band_pp": 5,
+    "max_position_pct": 5,
+    "trim_position_pct": 8
+  },
+  "holdings": [
+    {
+      "ticker": "QQQ", "type": "etf", "etf_class": "equity", "sleeve": "core", "target_pct": 40, "shares": 95,
+      "price": 560.10, "year_high": 640.25, "ma50": 600.40, "ma200": 571.30,
+      "returns": {"3M": -7.10, "6M": -5.00, "1Y": 7.20},
+      "benchmark_returns": {"3M": -4.20, "6M": 0.30, "1Y": 10.60}
+    },
+    {
+      "ticker": "SCHG", "type": "etf", "etf_class": "equity", "sleeve": "core", "target_pct": 30, "shares": 1800,
+      "price": 29.52, "year_high": 33.18, "ma50": 31.41, "ma200": 29.98,
+      "returns": {"3M": -6.20, "6M": -3.90, "1Y": 8.10},
+      "benchmark_returns": {"3M": -4.20, "6M": 0.30, "1Y": 10.60}
+    },
+    {
+      "ticker": "SPMO", "type": "etf", "etf_class": "equity", "sleeve": "core", "target_pct": 30, "shares": 470,
+      "price": 105.06, "year_high": 118.40, "ma50": 112.20, "ma200": 106.45,
+      "returns": {"3M": -8.00, "6M": -6.10, "1Y": 9.30},
+      "benchmark_returns": {"3M": -4.20, "6M": 0.30, "1Y": 10.60}
+    },
+    {
+      "ticker": "NVDA", "type": "stock", "sleeve": "satellite", "shares": 40,
+      "price": 186.64, "year_high": 243.37, "year_low": 164.27,
+      "ma50": 220.64, "ma200": 204.66,
+      "returns": {"3M": -14.77, "6M": -10.20, "1Y": -0.77},
+      "quarters": [
+        {"label": "Q2 FY27", "eps": 2.46, "eps_ya": 1.08, "rev": 96221, "rev_ya": 46743, "op_inc": 63734, "op_inc_ya": 28440},
+        {"label": "Q1 FY27", "eps": 2.39, "eps_ya": 0.76, "rev": 81615, "rev_ya": 44062, "op_inc": 53536, "op_inc_ya": 21638},
+        {"label": "Q4 FY26", "eps": 1.76, "eps_ya": 0.89, "rev": 68127, "rev_ya": 39331, "op_inc": 44299, "op_inc_ya": 24034}
+      ],
+      "last4_eps": [2.46, 2.39, 1.76, 1.30],
+      "annual": [
+        {"fy": "FY23", "eps": 0.17, "rev": 26974,  "op_inc": 4224,   "shares": 25070, "ebitda": 5986},
+        {"fy": "FY24", "eps": 1.19, "rev": 60922,  "op_inc": 32972,  "shares": 24940, "ebitda": 35583},
+        {"fy": "FY25", "eps": 2.94, "rev": 130497, "op_inc": 81453,  "shares": 24804, "ebitda": 86137},
+        {"fy": "FY26", "eps": 4.90, "rev": 215938, "op_inc": 130387, "shares": 24514, "ebitda": 144552}
+      ],
+      "roe": 0.7633, "roic": 0.6288, "net_debt_to_ebitda": 0.0056, "fcf_yield": 0.0213,
+      "newness": "major",
+      "institutional": {"trend": "falling", "pct": 0.54},
+      "thesis": {"core": "auto", "capital": "pass", "balance": "auto", "moat": "watch"},
+      "next_earnings": "2026-11-17",
+      "web_sourced": ["N", "I"],
+      "evidence": {
+        "N": "Aug 26 2026: Q2 FY27 beat; Q3 guide $108B vs ~$104B consensus",
+        "I": "Q1 2026 13F: ~54% institutional, -6pp QoQ, trimmers outnumber adders ~3:1",
+        "capital": "Capex-light; buybacks shrinking share count",
+        "moat": "Hyperscaler custom silicon (TPU, Trainium) gaining; China excluded from guidance"
+      }
+    }
+  ]
+}
