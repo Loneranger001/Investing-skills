@@ -1,0 +1,17 @@
+{
+  "_help": "Copy to portfolio.json (git-ignored) next to this file or in your working directory. Core target_pct = each fund's share of the core (sum to 100). Satellite = individual stocks + sector/thematic ETFs. Set held: false for a ticker you're only watching. Update shares and cash_reserve when they change. dashboard_dir holds latest.json, history.jsonl and dashboard.html (git-ignored).",
+  "contribution": 2000,
+  "cash_reserve": 0,
+  "satellite_target_pct": 20,
+  "band_pp": 5,
+  "max_position_pct": 5,
+  "trim_position_pct": 8,
+  "dashboard_dir": "portfolio-verdict-data",
+  "holdings": [
+    {"ticker": "QQQ",  "type": "etf",   "sleeve": "core",      "target_pct": 40, "shares": 0},
+    {"ticker": "SCHG", "type": "etf",   "sleeve": "core",      "target_pct": 30, "shares": 0},
+    {"ticker": "SPMO", "type": "etf",   "sleeve": "core",      "target_pct": 30, "shares": 0},
+    {"ticker": "NVDA", "type": "stock", "sleeve": "satellite", "shares": 0},
+    {"ticker": "AMZN", "type": "stock", "sleeve": "satellite", "held": false}
+  ]
+}

@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# Personal holdings for portfolio-verdict: never commit
+portfolio.json
+portfolio-verdict-data/
