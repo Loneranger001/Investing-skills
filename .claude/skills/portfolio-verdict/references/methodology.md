@@ -3,8 +3,10 @@
 `scripts/verdict.py` is the source of truth; this file documents it. Every weekly-stage,
 market-gate, thesis and holder rule comes from the canslim scorer
 (`../../canslim/references/methodology.md`); this skill adds the verdict scale, the market
-verdict, the core and satellite mappings, the size caps and the dollar plan. Change a
-threshold in both places and re-run `test_verdict.py` and `backtest_dca.py`.
+verdict, fund entry timing, the market-health panel, the core and satellite mappings, the
+size caps and the dollar plan. Change a threshold in both places, re-run `build_stats.py`
+if it touches a chart state or the verdict, and re-run `test_verdict.py` and
+`backtest_dca.py`. The JSON contract for dashboards is in `output_schema.md`.
 
 ## The scale
 
@@ -44,11 +46,116 @@ timing changes.
 - **The pullback rule** uses the S&P 500, not the Nasdaq. A Nasdaq-only dip in a strong
   tape (Mar–Apr 2000) is more often a top than a dip.
 
-Not used, on purpose: valuation (CAPE, forward P/E), sentiment, VIX, yield curve and
-credit spreads. None has a reliable weekly timing record, and each is easy to
-over-interpret. An index far above its 40-wk is not a caution signal either: 2009–10 and
-2020–21 stayed extended for months and kept rising. The synopsis can mention macro news
-as context, but it doesn't change a verdict.
+Only the S&P 500 and the Nasdaq feed the verdict (`GATE` in `verdict.py`). Any other index
+in the input (e.g. `^RUT`) goes to the health panel, so adding context can never move the
+backtested gate.
+
+Not in the verdict, on purpose: valuation (CAPE, forward P/E), sentiment, VIX, yield curve,
+credit spreads and breadth. None has a reliable weekly timing record over the data
+available here, and each is easy to over-interpret. They're in the health panel instead.
+An index far above its 40-wk is not a caution signal either: 2009–10 and 2020–21 stayed
+extended for months and kept rising.
+
+## What followed each verdict
+
+`scripts/build_stats.py` → `entry_stats.json`, 2000–2023. Next-26-week return of a 50/50
+S&P 500 / Nasdaq blend after each verdict:
+
+| Verdict | Episodes | Median | % up | Worst 10% |
+|---|---|---|---|---|
+| Buy More (pullback) | 14 | +6.4% | 86% | −0.1% |
+| Buy More (repair) | 11 | +13.2% | 100% | +6.3% |
+| Buy | 46 | +5.5% | 73% | −6.4% |
+| Exercise Caution | 68 | +5.9% | 63% | −20.1% |
+| Pause | 25 | +1.2% | 52% | −26.8% |
+
+The verdicts separate **risk** far more than they separate typical returns: Caution's median
+is no worse than Buy's, but its worst decile is three times deeper. That is the honest case
+for the throttle: it trims exposure to the left tail, not the median. Every run shows the
+row for the current verdict.
+
+## Fund entry timing ("when does it make more sense to buy?")
+
+Each fund, and each index, is placed in one of 11 chart states from its own weekly chart
+(`entry_state`): trend (uptrend = confirmed above a flat or rising 40-wk; repair = above a
+falling 40-wk; testing = below or within 2% of the 40-wk; downtrend = Stage 4) × distance
+below the 52-wk high. `build_stats.py` records what followed every S&P 500 and Nasdaq
+week in each state, 2000–2023 (pooled; QQQ, SCHG, SPMO and VOO all sit between the two):
+
+| State | Episodes | 26w median | % up | Worst 10% | 52w median |
+|---|---|---|---|---|---|
+| Uptrend, within 5% of the high | 101 | +5.3% | 71% | −7.8% | +9.0% |
+| **Uptrend, 5–10% pullback (buy zone)** | 59 | **+7.0%** | **76%** | **−5.2%** | **+10.7%** |
+| Uptrend on paper, 10%+ off the high | 8 | −24.6% | 25% | −40.2% | −44.6% |
+| Repair | 25 | +10.9% | 93% | +2.5% | +15.3% |
+| Testing the 40-wk, within 5% of the high | 49 | +5.5% | 74% | −8.5% | +9.3% |
+| Testing the 40-wk, 5–10% off | 96 | +6.2% | 69% | −9.2% | +10.6% |
+| At or below the 40-wk, 10–20% off | 63 | +10.9% | 72% | −15.6% | +16.8% |
+| Below the 40-wk, 20%+ off | 20 | −22.5% | 34% | −48.4% | −30.7% |
+| Downtrend (Stage 4), within 10% of the high | 17 | +10.1% | 97% | +2.7% | +19.2% |
+| Downtrend, 10–20% off | 38 | −9.4% | 28% | −35.9% | −15.4% |
+| Downtrend, 20%+ off | 25 | +3.0% | 56% | −18.7% | +16.4% |
+
+Weekly samples overlap, so read the episodes column, not the week count. What it supports:
+
+- **The buy zone is real but modest.** A 5–10% pullback above a confirmed 40-wk beat
+  buying near the high by ~1.7pp of median over 26 weeks, with a shallower bad case. Within
+  a market that already reads Buy, a Nasdaq-only pullback added ~1pp (median +7.2% vs
+  +6.3%, 40 weeks). So the skill **tilts** money toward a fund in its zone; it doesn't
+  promise a timing edge.
+- **Deep drops while still "above the 40-wk" are traps** (8 episodes, all Nasdaq, 5 of
+  them in 2000): a parabolic run leaves the 40-wk far below price. No buy zone there.
+- **Stage 4 10–20% off the high was the worst place to buy** (28% up). Pause is right there.
+- **Shallow Stage 4 (within 10% of the high) and deep bear lows bought well**, but in
+  hindsight only. The shallow row is 2004, 2006, 2011, 2015–16 and early 2019, plus one
+  week in May 2008 that preceded the crash (its worst case, −31.5%). Tested and rejected:
+  switching Pause to Caution when the market is within 10% of its high moved the backtest
+  by ≤0.2pp.
+
+**Buy zone and levels** (`buy_levels`): zone = 5–10% below the fund's 52-wk high, but never
+below its 40-wk +2% (the confirm line); no zone if the 40-wk sits too close to the high.
+Also reported: the 10-wk, 40-wk, confirm line and the −20% bear line, and how far price
+must fall to reach the zone.
+
+**The rule.** When the market verdict is **Buy** and a core fund is in `up_5_10`, that fund
+is **Buy More**: it gets double weight in this period's split (drift caps still apply). A
+fund in its zone while the market reads Caution or Pause stays at the market verdict; the
+dashboard still shows it's in its zone.
+
+## Market health (context, never the verdict)
+
+Five scored areas, each 0–100, combined with fixed weights over whatever data is present
+(coverage is reported; trend is always present):
+
+| Area | Weight | Inputs → score |
+|---|---|---|
+| Trend | 40% | mean of the S&P 500 and Nasdaq weekly-stage scores (canslim W, 5–92) |
+| Participation | 20% | mean of: % of S&P 500 above 200-day `20→0, 40→30, 50→50, 60→70, 75→100`; Russell 2000 weekly-stage score; equal-weight minus cap-weight 3M (RSP − SPY, pp) `−8→0, −5→30, −2→70, 0→90, 2→100` |
+| Volatility | 15% | VIX `12→100, 16→85, 20→60, 25→35, 30→15, 40→0`; capped at 20 when VIX ≥ VIX3M (inverted term structure) |
+| Credit | 15% | high-yield OAS % `3→100, 4→70, 5→40, 6→15, 8→0`, minus a widening penalty on the 3-month change `+0.25→0, +0.5→−15, +1.0→−30` |
+| Yield curve | 10% | 10Y − 3M (10Y − 2Y if 3M missing), pp `−1→10, −0.5→25, 0→50, 0.25→70, 1→100` |
+
+Status per area: ≥67 good, 34–66 neutral, <34 weak. Health label: ≥70 Healthy, 50–69
+Mixed, 30–49 Weak, <30 Stressed. **Internals** = the same composite without trend.
+
+Unscored context:
+- **Valuation**: forward P/E vs its 10-yr average (< −10% cheap, ±10% fair, ≤ +25% rich,
+  more very rich), CAPE (<20 / <30 / <35 / above), earnings yield minus the 10Y.
+- **Sentiment**: CNN Fear & Greed (≤25 extreme fear … ≥75 extreme greed) and the AAII
+  bull-bear spread (beyond ±20 = fearful/euphoric). Contrarian at the extremes.
+- **Leadership**: average 3M return of offensive sectors (XLK, XLY, XLC, XLF, XLI) minus
+  defensive (XLP, XLU, XLV, XLRE): > +2pp risk-on, < −2pp defensive, else mixed.
+
+**Divergence note.** Trend says Buy or Buy More but internals < 40 → "stick to the usual
+amount, skip spare cash". Trend says Pause but internals ≥ 65 → "a quick reclaim is
+plausible, watch the levels". Neither changes the verdict or the dollar plan.
+
+Why health isn't in the verdict: the thresholds are standard practitioner readings, not
+fitted, and the free data available here can't test them across bears (VIX history in this
+environment covers only 2014–18; the bond-spread series is monthly and covers two bears).
+Wiring an untested score into the money decision would undo the point of a backtested
+verdict. If a longer history becomes available, test one input at a time with
+`backtest_dca.py` before promoting it.
 
 ## Core ETFs
 
@@ -56,7 +163,9 @@ A core fund starts at the market verdict, then:
 
 1. Its own weekly Stage 4 (below a falling 40-wk) → cap at **Pause**.
 2. Its own price below its 40-wk → cap at **Exercise Caution**.
-3. Overweight: its share of the **core** exceeds its target by more than `band_pp` (5) →
+3. Market verdict Buy and the fund in its own buy zone (`up_5_10`) → **Buy More** (see
+   *Fund entry timing*).
+4. Overweight: its share of the **core** exceeds its target by more than `band_pp` (5) →
    cap at **Pause** ("new money goes to the underweight funds"). Drift is measured within
    the core so that an under- or over-weight satellite doesn't make every fund look off.
 
@@ -112,8 +221,9 @@ to_reserve   = amount − invest_new
    `max_position_pct`. If none qualify, the share goes to the core.
 2. **Core** gets the rest, split over core funds rated Buy More, Buy or Exercise Caution,
    in proportion to how far each is below its target share of the core after the
-   contribution (contributions rebalance; nothing is sold). Without weights, the split
-   follows the targets. If no core fund qualifies, the core share goes to the reserve.
+   contribution (contributions rebalance; nothing is sold), with a fund rated Buy More (in
+   its own buy zone) counted double. Without weights, the split follows the targets. If no
+   core fund qualifies, the core share goes to the reserve.
 3. Whole dollars, largest-remainder rounding, so the parts add up to the total exactly.
 
 ## Backtest
@@ -191,9 +301,14 @@ bad idea, and that's before capital-gains tax.
 ## Checking reliability
 
 - `python3 -m unittest -v test_verdict.py` (in `scripts/`): market rules, core caps,
-  satellite mapping and caps, the dollar plan, pinned historical weeks, the backtest
-  bounds, and a golden run of `example_input.json`. canslim's own suite still applies:
-  `python3 -m unittest -v test_score.py` in `../canslim/scripts/`.
+  satellite mapping and caps, entry states and buy zones, the health curves and divergence
+  notes, the dollar plan, pinned historical weeks, the backtest bounds, the JSON contract
+  and history upsert, the dashboard (including HTML escaping), a check that
+  `entry_stats.json` matches a fresh `build_stats.py` run, and a golden run of
+  `example_input.json`. canslim's own suite still applies: `python3 -m unittest -v
+  test_score.py` in `../canslim/scripts/`.
+- `python3 build_stats.py --print` after any change to `entry_state`, the market verdict or
+  canslim's `weekly_stage`; commit the regenerated `entry_stats.json`.
 - `python3 backtest_dca.py [--weeks 2008] [--cash 0.02]` after any change to the market
   verdict, the contribution and reserve fractions, or canslim's `weekly_stage` or
   `market_regime`.

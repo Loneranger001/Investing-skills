@@ -2,10 +2,13 @@
 import copy
 import json
 import os
+import tempfile
 import unittest
 
 import verdict
 import backtest_dca as bt
+import build_stats
+import render_dashboard
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -75,7 +78,7 @@ def run(holdings, market=OK, mode="full", **portfolio):
 
 
 def row(out, tk):
-    return next(r for r in out["holdings"] if r["ticker"] == tk)
+    return next(r for r in out["core"] + out["satellite"] if r["ticker"] == tk)
 
 
 class Market(unittest.TestCase):
@@ -206,7 +209,7 @@ class Core(unittest.TestCase):
 
     def test_targets_rescaled_and_flagged(self):
         out = run([etf("QQQ", target_pct=30, shares=1), etf("SCHG", target_pct=25, shares=1)])
-        self.assertAlmostEqual(row(out, "QQQ")["target_pct"], 54.545, places=2)
+        self.assertEqual(row(out, "QQQ")["target_pct"], 54.5)
         self.assertTrue(any("rescaled" in f for f in out["flags"]))
 
 
@@ -327,13 +330,182 @@ class Golden(unittest.TestCase):
     def test_example_input(self):
         with open(os.path.join(HERE, "example_input.json")) as f:
             out = verdict.run(json.load(f))
-        self.assertEqual(out["verdict"], "Exercise Caution")
-        self.assertEqual({r["ticker"]: r["verdict"] for r in out["holdings"]},
+        self.assertEqual(out["verdict"]["label"], "Exercise Caution")
+        self.assertEqual({r["ticker"]: r["verdict"] for r in out["core"] + out["satellite"]},
                          {"QQQ": "Exercise Caution", "SCHG": "Exercise Caution",
                           "SPMO": "Exercise Caution", "NVDA": "Pause"})
         self.assertEqual(out["plan"]["split"], {"QQQ": 1000})
         self.assertEqual((out["plan"]["to_reserve"], out["plan"]["reserve_after"]), (1000, 4000))
         self.assertEqual(out["flags"], [])
+
+
+class Entry(unittest.TestCase):
+    def state(self, price, ma10, ma40, high, r6=5, r1=15):
+        return verdict.entry_state(price, ma10, ma40, high, {"6M": r6, "1Y": r1})["bucket"]
+
+    def test_buckets(self):
+        self.assertEqual(self.state(100, 98, 90, 102), "up_lt5")
+        self.assertEqual(self.state(100, 103, 90, 107), "up_5_10")
+        self.assertEqual(self.state(100, 110, 90, 125), "up_ge10")
+        self.assertEqual(self.state(100, 96, 97, 125, r6=5, r1=-15), "repair")
+        self.assertEqual(self.state(93, 100, 95, 106), "test_10_20")
+        self.assertEqual(self.state(80, 85, 100, 112, r6=-20, r1=-25), "down_ge20")
+
+    def test_missing_high_is_none(self):
+        self.assertIsNone(verdict.entry_state(100, 98, 90, None, {"6M": 5, "1Y": 15}))
+
+    def test_buy_levels(self):
+        lv = verdict.buy_levels(110, 105, 90, 112)
+        self.assertEqual((lv["zone_low"], lv["zone_high"]), (100.8, 106.4))  # max(112*0.9, 90*1.02), 112*0.95
+        self.assertAlmostEqual(lv["to_zone_pct"], -3.3, places=1)
+        self.assertIsNone(verdict.buy_levels(110, 108, 106, 112)["zone_low"])  # 40-wk confirm above the zone
+
+    def test_fund_in_its_buy_zone_is_buy_more_when_market_says_buy(self):
+        q = etf("SPMO", price=100, ma50=103, ma200=90, year_high=107)
+        r = row(run([q]), "SPMO")
+        self.assertEqual(r["entry"]["bucket"], "up_5_10")
+        self.assertEqual(r["verdict"], "Buy More")
+        self.assertIn("buy zone", r["why"])
+        self.assertTrue(r["zone"].startswith("In the zone now"))
+
+    def test_buy_zone_does_not_override_a_cautious_market(self):
+        q = etf("SPMO", price=100, ma50=103, ma200=90, year_high=107)
+        self.assertEqual(row(run([q], BELOW40), "SPMO")["verdict"], "Exercise Caution")
+
+    def test_plan_tilts_toward_the_buy_zone_fund(self):
+        h = [etf("SPMO", target_pct=50, price=100, ma50=103, ma200=90, year_high=107),
+             etf("QQQ", target_pct=50)]
+        p = run(h, contribution=900)["plan"]
+        self.assertEqual(p["split"], {"SPMO": 600, "QQQ": 300})
+
+    def test_core_rows_carry_history(self):
+        r = row(run([etf("QQQ")]), "QQQ")
+        self.assertEqual(r["stats"]["episodes"], build_stats.build()["entry"]["up_lt5"]["episodes"])
+        self.assertIn("fwd_26w", r["stats"])
+
+
+class Health(unittest.TestCase):
+    FULL = {"^RUT": idx(110, 106, 95, 112, 5, 10, 20), "pct_above_200d": 70, "rsp_spy_3m_pp": 0.5,
+            "vix": 14, "vix3m": 16, "hy_oas": 3.0, "hy_oas_3m_ago": 3.1, "us10y": 4.5, "us3m": 3.6,
+            "fwd_pe": 17, "fwd_pe_10y_avg": 18, "cape": 28, "fear_greed": 50, "aaii_bull_bear": 5,
+            "sectors_3m": {"XLK": 6, "XLY": 5, "XLC": 4, "XLF": 3, "XLI": 3, "XLP": 1, "XLU": 0, "XLV": 1, "XLRE": 0}}
+
+    def health(self, h, market=OK):
+        return verdict.run({"as_of": "2026-11-07", "market": market, "health": h, "holdings": []})
+
+    def test_trend_only_when_nothing_else(self):
+        out = self.health({})
+        self.assertEqual(out["health"]["coverage"], "1/5")
+        self.assertEqual(out["health"]["score"], 92)
+        self.assertTrue(any("health: no data" in f for f in out["flags"]))
+
+    def test_strong_market_is_healthy(self):
+        hl = self.health(self.FULL)["health"]
+        self.assertEqual((hl["coverage"], hl["label"]), ("5/5", "Healthy"))
+        ctx = {c["key"]: c["status"] for c in hl["context"]}
+        self.assertEqual(ctx, {"valuation": "fair", "sentiment": "neutral", "leadership": "risk-on"})
+
+    def test_stressed_market(self):
+        h = {"pct_above_200d": 18, "rsp_spy_3m_pp": -9, "vix": 42, "vix3m": 35, "hy_oas": 7.5,
+             "hy_oas_3m_ago": 4.5, "us10y": 3.5, "us3m": 4.8}
+        hl = self.health(h, STAGE4)["health"]
+        self.assertEqual(hl["label"], "Stressed")
+        cats = {c["key"]: c["score"] for c in hl["categories"]}
+        self.assertEqual((cats["volatility"], cats["credit"], cats["participation"]), (0, 0, 0))
+        self.assertEqual(hl["internals_score"], 2)  # only the inverted curve (10) scores above 0
+
+    def test_inverted_vix_curve_caps_volatility(self):
+        cats = {c["key"]: c for c in self.health({"vix": 16, "vix3m": 15})["health"]["categories"]}
+        self.assertEqual(cats["volatility"]["score"], 20)
+        calm = {c["key"]: c for c in self.health({"vix": 16, "vix3m": 18})["health"]["categories"]}
+        self.assertEqual(calm["volatility"]["score"], 85)  # term structure shown, not averaged in
+
+    def test_credit_widening_penalty(self):
+        calm = self.health({"hy_oas": 3.5, "hy_oas_3m_ago": 3.4})["health"]["categories"][3]["score"]
+        wide = self.health({"hy_oas": 3.5, "hy_oas_3m_ago": 2.5})["health"]["categories"][3]["score"]
+        self.assertEqual(calm - wide, 30)
+
+    def test_extra_index_is_health_not_gate(self):
+        m = dict(OK, **{"^RUT": idx(80, 85, 100, 112, -15, -20, -25)})  # small caps in Stage 4
+        out = verdict.run({"as_of": "2026-11-07", "market": m, "holdings": []})
+        self.assertEqual(out["verdict"]["label"], "Buy")
+        part = out["health"]["categories"][1]
+        self.assertEqual(part["items"][0]["key"], "^RUT")
+        self.assertEqual(part["status"], "weak")
+
+    def test_divergence_notes(self):
+        weak = {"pct_above_200d": 18, "vix": 42, "hy_oas": 7.5, "us10y": 3.5, "us3m": 4.8}
+        self.assertIn("skip spare cash", self.health(weak)["verdict"]["divergence"])
+        self.assertIn("quick reclaim", self.health(self.FULL, STAGE4)["verdict"]["divergence"])
+        self.assertIsNone(self.health(self.FULL)["verdict"]["divergence"])
+
+
+class Output(unittest.TestCase):
+    def test_schema(self):
+        out = run([etf("QQQ"), stock()], contribution=1000)
+        self.assertEqual(out["schema_version"], 2)
+        for k in ("as_of", "mode", "verdict", "market", "health", "core", "satellite", "plan", "actions",
+                  "flags", "text"):
+            self.assertIn(k, out)
+        self.assertEqual(set(out["market"]["indexes"]), {"^GSPC", "^IXIC"})
+        self.assertIn("stats", out["verdict"])
+        for k in ("headline", "market_line", "health_table_md", "tables_md", "plan_line"):
+            self.assertIn(k, out["text"])
+        json.dumps(out)  # serializable
+
+    def test_out_dir_upserts_history(self):
+        with tempfile.TemporaryDirectory() as d:
+            for as_of, m in (("2026-11-01", OK), ("2026-11-08", STAGE4), ("2026-11-08", BELOW40)):
+                out = verdict.run({"as_of": as_of, "market": m, "holdings": [etf("QQQ")]})
+                verdict.write_out(out, d)
+            with open(os.path.join(d, "history.jsonl")) as f:
+                hist = [json.loads(x) for x in f]
+            self.assertEqual([(h["as_of"], h["verdict"]) for h in hist],
+                             [("2026-11-01", "Buy"), ("2026-11-08", "Exercise Caution")])
+            with open(os.path.join(d, "latest.json")) as f:
+                self.assertEqual(json.load(f)["verdict"]["label"], "Exercise Caution")
+
+
+class Stats(unittest.TestCase):
+    def test_committed_stats_are_current(self):
+        with open(verdict.STATS_PATH) as f:
+            committed = json.load(f)
+        self.assertEqual(committed, build_stats.build(), "re-run build_stats.py")
+
+    def test_every_bucket_has_history(self):
+        stats = verdict.load_stats()
+        self.assertEqual(set(stats["entry"]), set(verdict.ENTRY_LABELS))
+        for k, r in stats["entry"].items():
+            self.assertGreaterEqual(r["episodes"], 8, k)
+
+
+class Dashboard(unittest.TestCase):
+    def page(self, out, hist=None):
+        out = dict(out, _verdict_stats=verdict.load_stats()["verdict"])
+        return render_dashboard.render(out, hist or [])
+
+    def test_full_page(self):
+        with open(os.path.join(HERE, "example_input.json")) as f:
+            out = verdict.run(json.load(f))
+        hist = [verdict.history_record(out)]
+        page = self.page(out, hist)
+        for section in ("Market health", "Indexes", "Core funds", "Satellite", "This period", "History",
+                        "What followed each verdict"):
+            self.assertIn(section, page)
+        self.assertIn("In the zone now", page)       # SPMO's buy zone
+        self.assertEqual(page.count('class="lad"'), 5)  # 2 indexes + 3 funds
+
+    def test_minimal_page(self):
+        page = self.page(verdict.run({"as_of": "2026-11-07", "market": OK, "holdings": [etf("QQQ")]}))
+        self.assertIn("History builds up", page)
+        self.assertIn("Add a contribution", page)
+        self.assertNotIn("<h2>Satellite</h2>", page)
+
+    def test_text_is_escaped(self):
+        page = self.page(verdict.run({"as_of": "2026-11-07", "market": OK,
+                                      "holdings": [etf("<img src=x onerror=alert(1)>")]}))
+        self.assertNotIn("<img src=x", page)
+        self.assertIn("&lt;img src=x", page)
 
 
 if __name__ == "__main__":

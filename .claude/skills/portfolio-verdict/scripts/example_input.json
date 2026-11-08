@@ -1,12 +1,28 @@
 {
   "as_of": "2026-11-07",
   "mode": "full",
-  "_note": "Schema example. ^GSPC/^IXIC price, MAs and returns and the NVDA block are canslim's live FMP snapshot of 2026-11-07; index year_high values and all ETF figures are illustrative.",
+  "_note": "Schema example. ^GSPC/^IXIC price, MAs and returns and the NVDA block are canslim's live FMP snapshot of 2026-11-07; index year_high values, the health block and all ETF figures are illustrative.",
   "market": {
     "^GSPC": {"price": 7378.9, "ma50": 7686.53, "ma200": 7322.74, "year_high": 7801.2,
               "returns": {"3M": -4.29, "6M": 0.19, "1Y": 9.80}},
     "^IXIC": {"price": 24579.42, "ma50": 26497.06, "ma200": 25092.57, "year_high": 27215.6,
               "returns": {"3M": -6.71, "6M": -4.87, "1Y": 6.62}}
+  },
+  "health": {
+    "^RUT": {"price": 2381.5, "ma50": 2502.0, "ma200": 2440.3, "year_high": 2620.0,
+             "returns": {"3M": -6.0, "6M": -2.5, "1Y": 3.1}},
+    "pct_above_200d": 44,
+    "rsp_3m": -6.8, "spy_3m": -4.2,
+    "vix": 22.6, "vix3m": 23.4,
+    "hy_oas": 3.45, "hy_oas_3m_ago": 2.95,
+    "us10y": 4.18, "us2y": 3.62, "us3m": 3.85,
+    "fwd_pe": 21.4, "fwd_pe_10y_avg": 18.9,
+    "cape": 36.8,
+    "fear_greed": 29,
+    "aaii_bull_bear": -14.2,
+    "sectors_3m": {"XLK": -7.9, "XLY": -6.1, "XLC": -3.4, "XLF": -1.2, "XLI": -2.8, "XLE": 2.1,
+                   "XLB": -3.0, "XLP": 3.4, "XLU": 5.6, "XLV": 2.2, "XLRE": 0.9},
+    "sources": {"pct_above_200d": "illustrative", "vix": "illustrative", "hy_oas": "illustrative"}
   },
   "portfolio": {
     "contribution": 2000,
@@ -31,8 +47,8 @@
     },
     {
       "ticker": "SPMO", "type": "etf", "etf_class": "equity", "sleeve": "core", "target_pct": 30, "shares": 470,
-      "price": 105.06, "year_high": 118.40, "ma50": 112.20, "ma200": 106.45,
-      "returns": {"3M": -8.00, "6M": -6.10, "1Y": 9.30},
+      "price": 108.20, "year_high": 117.40, "ma50": 110.50, "ma200": 105.00,
+      "returns": {"3M": -4.50, "6M": 1.50, "1Y": 12.00},
       "benchmark_returns": {"3M": -4.20, "6M": 0.30, "1Y": 10.60}
     },
     {
