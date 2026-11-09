@@ -4,6 +4,16 @@ Claude Code skills for investing workflows.
 
 ## Skills
 
+Which skill answers depends on how you ask:
+
+| You ask | Skill |
+|---|---|
+| *"Can I buy AAPL?"*, *"Should I sell NVDA?"*, *"Should I buy more MSFT?"* (any plain buy / sell / add question about one ticker) | `/minervini`: a trade verdict, weeks to months, stop ≤ 10% |
+| *"Is AAPL worth owning for the next 3 years?"*, *"Is the AMZN thesis still intact long term?"*, a CAN SLIM or Quality score | `/canslim`: a 2–5 year view on the weekly chart |
+| *"Should I keep buying this month?"*, *"Is QQQ in a buy zone?"*, *"How healthy is the market?"* | `/portfolio-verdict`: the whole portfolio and this period's contribution |
+
+The slash command always wins: `/canslim AAPL` gives the long-term read even for a plain question.
+
 ### `/canslim`: CAN SLIM for 2–5 year position investing
 
 Built for an investor who holds for 2–5 years and makes entry and exit decisions on the
@@ -32,7 +42,8 @@ it never reopened between its final close and the low in any of them.
 /canslim AAPL MSFT QQQ
 ```
 
-or just ask: *"Is PLTR still a buy?"* or *"Should I keep holding AMZN?"*
+or ask with a long-term framing: *"Is PLTR still a buy for a 3-year hold?"* or *"Should I keep
+holding AMZN long term?"* (a plain *"Is PLTR a buy?"* goes to `/minervini`)
 
 Example output (live data, 2026-11-07):
 
@@ -65,6 +76,81 @@ the methodology.
 To use the skill outside this repo, copy the whole `.claude/skills/canslim/` folder
 (including `references/` and `scripts/`) into `~/.claude/skills/`, or upload it as a zip
 to claude.ai. Uploading only `SKILL.md` leaves the skill without its rubric or scorer.
+
+### `/minervini`: buy / sell / buy-more verdicts from *Trade Like a Stock Market Wizard*
+
+Applies Mark Minervini's SEPA rules to a US stock or ETF and answers the question you asked:
+
+| You ask | Verdicts |
+|---|---|
+| *Can I buy AAPL?* | **BUY** · **BUY ON BREAKOUT** (pivot, volume needed, buy range) · **WAIT** · **AVOID** |
+| *Should I sell AAPL?* | **SELL** · **SELL INTO STRENGTH** · **HOLD, TIGHTEN STOP** · **HOLD** |
+| *Should I buy more AAPL?* | **ADD** · **ADD ON BREAKOUT** · **DON'T ADD** |
+
+All three are computed every time; the one you asked about comes first. Rules applied:
+
+- **Trend Template (all 8)**: price above the 150/200-day, 150 > 200, 200-day rising ≥ 1 month,
+  50 > 150/200, price above the 50-day, ≥ 30% above the 52-wk low, within 25% of the 52-wk
+  high, RS ≥ 70 (proxy: IBD-weighted 12-month performance vs the S&P 500).
+- **Stage Analysis**: buys in Stage 2 only; Stage 4 or a break of the 200-day is a sell.
+- **VCP**: at least 2 contractions, each shallower than the last, the final one ≤ 10%,
+  volume drying up; pivot = high of the last contraction; buy within 5% above it on ≥ 1.4×
+  average volume.
+- **Earnings**: latest quarter EPS ≥ +20% with sales growing (GAAP one-offs neutralised via
+  operating income); acceleration, margin expansion, surprise and **Code 33** shown.
+- **Risk**: stop under the last contraction low and never more than 10% below the entry;
+  size = 1.25% account risk ÷ stop; stop to breakeven at 2R; never average down.
+- **Selling**: into weakness (largest drop of the advance, heavy-volume break of the 50-day,
+  failed breakout) or into strength (a 25% run in 3 weeks or 70% above the 200-day, plus a
+  second climax sign).
+- **Market**: S&P 500 below a falling 200-day → no new buys; under pressure → half size.
+
+```
+/minervini AAPL
+/minervini NVDA sell entry 120 on 2026-03-02
+```
+
+or just ask: *"Can I buy Apple?"*, *"Should I sell NVDA? I bought at 120 in March"*,
+*"Should I buy more MSFT?"*
+
+**Deterministic by construction.** The model only fetches data; `scripts/sepa.py` applies
+every rule. It uses completed sessions only (a bar dated today counts after 18:00 New York
+time), so asking twice during the trading day gives the same answer. It keeps the last 335
+sessions, so fetching more history changes nothing, and it uses no judgment inputs at all.
+Each result prints a data fingerprint: same fingerprint, same verdicts. The output is the
+script's text verbatim, with no free-form synopsis.
+
+Example (synthetic chart from `scripts/example_input.json`):
+
+```
+**DEMO: BUY ON BREAKOUT** (can I buy?) · $92.13 at the 2026-10-02 close · Stage 2 uptrend · Trend Template 8/8
+Can I buy? **BUY ON BREAKOUT**. Buy only if it trades above the $94.18 pivot (2.2% above the last close) on volume ≥ 931K (1.4× average); buy range $94.18–$98.89; stop $90.53 (-3.9%, under the last contraction low); size ≈ 25% of the account (risks 1.25% of it); once up 8% (2× the risk), raise the stop to breakeven
+Should I sell (if you hold)? **HOLD**. Trend Template intact, no sell signals; …
+Should I buy more? **ADD ON BREAKOUT**. Add only on a breakout above the $94.18 pivot on volume, …
+…Trend Template table…
+Setup: 3 contractions 20.9% → 8.3% → 3.9% over 16 wks from the $100.61 high (depth 20.9%) · quietest week 0.64× avg volume · VCP ✓ · pivot $94.18 (2.2% above the close)
+Fundamentals: PASS · Q3 FY26 · EPS +44%, prior +34% (accelerating) · sales +30%, prior +24% (accelerating) · net margin 25.0% vs 22.0% a year ago · EPS surprise +7.4% · Code 33 ✓
+Market: uptrend: normal position size (S&P 500 6,490, +1.7% vs its 50-day, +7.4% vs its rising 200-day)
+Data: 335 sessions through the 2026-10-02 close · fingerprint e1254b8e5d · rules 2026-11-08
+```
+
+**Horizon:** Minervini's rules are for trades of weeks to months with a stop of 10% or less.
+This is the default skill for a plain buy / sell / add question. Say "long term" (or use
+`/canslim`) for the 2–5 year view.
+
+**Data:** FMP MCP tools only: daily bars (`historical-price-eod-full`) for the stock and
+`^GSPC`, three quarters of income statements, and the earnings calendar. Daily bars can't be
+reproduced from web pages, so without FMP price history the skill stops instead of guessing.
+
+| File | Purpose |
+|---|---|
+| `.claude/skills/minervini/SKILL.md` | Workflow, exact data calls, output format |
+| `.claude/skills/minervini/references/methodology.md` | Every rule and threshold, marked as the book's or the skill's reading |
+| `.claude/skills/minervini/scripts/sepa.py` | Deterministic rules engine (stdlib) |
+| `.claude/skills/minervini/scripts/example_input.json` | Input schema (synthetic chart) |
+| `.claude/skills/minervini/scripts/test_sepa.py` | Tests, rules and determinism: `python3 -m unittest -v test_sepa.py` |
+| `.claude/skills/minervini/scripts/stress_vcp.py` | VCP recognition rate under noise and false-positive rate |
+| `.claude/skills/minervini/scripts/synth.py` | Synthetic chart generator used by the tests |
 
 ### `/portfolio-verdict`: weekly or monthly portfolio check-up, with a dashboard
 
