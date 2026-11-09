@@ -4,6 +4,16 @@ Claude Code skills for investing workflows.
 
 ## Skills
 
+Which skill answers depends on how you ask:
+
+| You ask | Skill |
+|---|---|
+| *"Can I buy AAPL?"*, *"Should I sell NVDA?"*, *"Should I buy more MSFT?"* (any plain buy / sell / add question about one ticker) | `/minervini`: a trade verdict, weeks to months, stop ≤ 10% |
+| *"Is AAPL worth owning for the next 3 years?"*, *"Is the AMZN thesis still intact long term?"*, a CAN SLIM or Quality score | `/canslim`: a 2–5 year view on the weekly chart |
+| *"Should I keep buying this month?"*, *"Is QQQ in a buy zone?"*, *"How healthy is the market?"* | `/portfolio-verdict`: the whole portfolio and this period's contribution |
+
+The slash command always wins: `/canslim AAPL` gives the long-term read even for a plain question.
+
 ### `/canslim`: CAN SLIM for 2–5 year position investing
 
 Built for an investor who holds for 2–5 years and makes entry and exit decisions on the
@@ -32,7 +42,8 @@ it never reopened between its final close and the low in any of them.
 /canslim AAPL MSFT QQQ
 ```
 
-or just ask: *"Is PLTR still a buy?"* or *"Should I keep holding AMZN?"*
+or ask with a long-term framing: *"Is PLTR still a buy for a 3-year hold?"* or *"Should I keep
+holding AMZN long term?"* (a plain *"Is PLTR a buy?"* goes to `/minervini`)
 
 Example output (live data, 2026-11-07):
 
@@ -124,8 +135,8 @@ Data: 335 sessions through the 2026-10-02 close · fingerprint e1254b8e5d · rul
 ```
 
 **Horizon:** Minervini's rules are for trades of weeks to months with a stop of 10% or less.
-`/canslim` is for 2–5 year positions. Both answer "can I buy X?", so name the method or
-use the slash command when it matters.
+This is the default skill for a plain buy / sell / add question. Say "long term" (or use
+`/canslim`) for the 2–5 year view.
 
 **Data:** FMP MCP tools only: daily bars (`historical-price-eod-full`) for the stock and
 `^GSPC`, three quarters of income statements, and the earnings calendar. Daily bars can't be
